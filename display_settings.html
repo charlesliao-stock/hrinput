@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>顯示偏好設定</title>
+    <style>
+        /* 🌟 關鍵控制：固定寬度，高度自動，隱藏拉桿 */
+        html, body {
+            width: 350px;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f7f6;
+            overflow: hidden; /* 徹底禁止拉桿出現 */
+        }
+        .wrapper {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        h3 {
+            border-left: 5px solid #3498db;
+            padding-left: 10px;
+            margin: 0 0 15px 0;
+            font-size: 16px;
+        }
+        .setting-group {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .item {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        .item input {
+            margin: 3px 10px 0 0;
+            cursor: pointer;
+        }
+        .item label {
+            cursor: pointer;
+            line-height: 1.4;
+        }
+        .save-btn {
+            width: 100%;
+            padding: 12px;
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <h3>👁️ 視窗顯示偏好</h3>
+        
+        <div class="setting-group">
+            <div class="item">
+                <input type="checkbox" id="showWebPreview">
+                <label for="showWebPreview">顯示「步驟1：舊月抓取」預覽</label>
+            </div>
+            <div class="item">
+                <input type="checkbox" id="showExcelReport">
+                <label for="showExcelReport">顯示「步驟2：Excel 匯入與檢測報告」</label>
+            </div>
+            <div class="item">
+            </div>
+        </div>
+
+        <button class="save-btn" id="saveBtn">💾 儲存並關閉</button>
+    </div>
+
+    <script src="display_settings.js"></script>
+</body>
+</html>

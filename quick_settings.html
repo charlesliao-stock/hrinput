@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>選項設定</title>
+    <style>
+        html, body {
+            width: 320px;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f7f6;
+            font-family: "Microsoft JhengHei", sans-serif;
+            overflow: hidden;
+        }
+        .wrapper { padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+
+        h3 { margin: 0 0 10px 0; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 6px; font-size: 15px; }
+
+        .section {
+            background: white;
+            border-radius: 8px;
+            padding: 12px 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.08);
+        }
+        .section-title {
+            font-weight: bold;
+            font-size: 13px;
+            color: #34495e;
+            margin-bottom: 10px;
+        }
+
+        /* 勾選項目 */
+        .check-item { display: flex; align-items: center; margin: 7px 0; font-size: 13px; }
+        .check-item input[type="checkbox"] { width: 16px; height: 16px; margin-right: 8px; cursor: pointer; }
+        .check-item label { cursor: pointer; line-height: 1.4; }
+
+        /* radio 項目 */
+        .radio-item { display: flex; align-items: center; gap: 8px; margin: 7px 0; font-size: 13px; }
+        .radio-item input[type="radio"] { width: 14px; height: 14px; cursor: pointer; }
+        .radio-item label { cursor: pointer; }
+
+        .fill-code-row { display: flex; align-items: center; gap: 8px; margin: 4px 0 4px 22px; }
+        .fill-code-row input[type="text"] {
+            width: 70px; padding: 4px 7px; border: 1px solid #ccc;
+            border-radius: 4px; font-size: 13px; text-align: center;
+        }
+        .fill-code-row input[type="text"]:disabled { background: #f0f0f0; color: #aaa; cursor: not-allowed; }
+        .fill-code-row input[type="text"].valid   { border-color: #27ae60; background: #f0fff4; }
+        .fill-code-row input[type="text"].invalid { border-color: #e74c3c; background: #fff5f5; }
+        .fill-hint { font-size: 11px; }
+        .fill-hint.ok  { color: #27ae60; }
+        .fill-hint.err { color: #e74c3c; }
+
+        .save-btn {
+            width: 100%; padding: 10px; background: #27ae60; color: white;
+            border: none; border-radius: 5px; font-size: 14px; font-weight: bold;
+            cursor: pointer; margin-top: 5px;
+        }
+        .save-btn:hover { background: #219150; }
+        .save-btn:disabled { background: #95a5a6; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <h3>⚙️ 選項設定</h3>
+
+        <!-- 🤖 全自動模式 -->
+        <div class="section">
+            <div class="section-title">🤖 自動化流程</div>
+            <div class="check-item">
+                <input type="checkbox" id="autoMode">
+                <label for="autoMode">開啟全自動模式（記憶後自動跳轉、匯入後自動詢問寫入）</label>
+            </div>
+        </div>
+
+        <!-- 👁️ 視窗顯示偏好 -->
+        <div class="section">
+            <div class="section-title">👁️ 視窗顯示偏好</div>
+            <div class="check-item">
+                <input type="checkbox" id="showWebPreview">
+                <label for="showWebPreview">步驟 1：讀取網頁資料後顯示預覽視窗</label>
+            </div>
+            <div class="check-item">
+                <input type="checkbox" id="showExcelReport">
+                <label for="showExcelReport">步驟 2：Excel 匯入後顯示班表預覽與檢測報告</label>
+            </div>
+        </div>
+
+        <!-- ✏️ 寫入行為設定 -->
+        <div class="section">
+            <div class="section-title">✏️ 寫入行為設定（Excel 空白格）</div>
+            <div class="radio-item">
+                <input type="radio" name="blankFillMode" id="modeKeep" value="keep">
+                <label for="modeKeep">維持現狀（不動網頁已有的值）</label>
+            </div>
+            <div class="radio-item">
+                <input type="radio" name="blankFillMode" id="modeFill" value="fill">
+                <label for="modeFill">填入班別代號：</label>
+            </div>
+            <div class="fill-code-row">
+                <input type="text" id="blankFillCode" maxlength="5" placeholder="系統代號" disabled>
+                <span class="fill-hint" id="fillHint"></span>
+            </div>
+        </div>
+
+        <button class="save-btn" id="saveBtn">💾 儲存並關閉</button>
+    </div>
+    <script src="quick_settings.js"></script>
+</body>
+</html>

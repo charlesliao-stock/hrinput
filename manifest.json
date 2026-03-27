@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "KMUH 班表輸入小幫手",
+  "version": "1.0",
+  "description": "支援跨月自動跳轉、多工作表選取與字典預檢",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "activeTab", "scripting", "tabs"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "*://hr.kmuh.org.tw/Customize/Attendance/KmuhdeptshiftEdit.aspx*",
+        "*://hr.kmuh.org.tw/Customize/Attendance/Kmuhdeptshiftedit.aspx*",
+        "*://hr.kmuh.org.tw/Customize/Attendance/kmuhdeptshiftedit.aspx*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "*://hr.kmuh.org.tw/Customize/Attendance/Kmuhdeptshift.aspx*",
+        "*://hr.kmuh.org.tw/Customize/Attendance/kmuhdeptshift.aspx*"
+      ],
+      "js": ["content_query.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "host_permissions": ["*://hr.kmuh.org.tw/*"],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "display_settings.html",
+        "display_settings.js",
+        "dict_manager.html",
+        "dict_manager.js",
+        "quick_settings.html",
+        "quick_settings.js",
+        "xlsx.full.min.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

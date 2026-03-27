@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>偏好設定</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f4f7f6; }
+        .section { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
+        .option-item { margin: 10px 0; display: flex; align-items: center; }
+        .option-item label { flex-grow: 1; cursor: pointer; }
+        input[type="checkbox"] { width: 18px; height: 18px; margin-right: 10px; }
+        .btn { padding: 8px 15px; cursor: pointer; border: none; border-radius: 4px; background: #3498db; color: white; }
+        .btn-save { background: #27ae60; width: 100%; font-size: 16px; margin-top: 10px; }
+        .btn-save:disabled { background: #95a5a6; cursor: not-allowed; }
+        .btn-link { background: #8e44ad; width: 100%; font-size: 14px; padding: 10px; }
+        .dict-note { font-size: 0.9em; color: #666; margin: 8px 0 0 0; }
+        .radio-item { margin: 10px 0; display: flex; align-items: center; gap: 8px; }
+        .radio-item input[type="radio"] { width: 16px; height: 16px; cursor: pointer; }
+        .radio-item label { cursor: pointer; }
+        .fill-code-row { display: flex; align-items: center; gap: 8px; margin: 4px 0 4px 24px; }
+        .fill-code-row input[type="text"] { width: 80px; padding: 5px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; text-align: center; }
+        .fill-code-row input[type="text"]:disabled { background: #f0f0f0; color: #aaa; cursor: not-allowed; }
+        .fill-code-row input[type="text"].valid   { border-color: #27ae60; background: #f0fff4; }
+        .fill-code-row input[type="text"].invalid { border-color: #e74c3c; background: #fff5f5; }
+        .fill-code-hint { font-size: 12px; }
+        .fill-code-hint.ok  { color: #27ae60; }
+        .fill-code-hint.err { color: #e74c3c; }
+    </style>
+</head>
+<body>
+    <h2>⚙️偏好設定</h2>
+
+    <div class="section">
+        <h3>🤖 自動化流程 (Automation)</h3>
+        <div class="option-item">
+            <input type="checkbox" id="autoMode">
+            <label for="autoMode"><b>開啟全自動模式</b> (記憶後自動跳轉、匯入後自動檢測並詢問寫入)</label>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>👁️ 視窗顯示偏好</h3>
+        <div class="option-item">
+            <input type="checkbox" id="showWebPreview">
+            <label for="showWebPreview">步驟 1：讀取網頁資料後顯示預覽視窗</label>
+        </div>
+        <div class="option-item">
+            <input type="checkbox" id="showExcelReport">
+            <label for="showExcelReport">步驟 2：Excel 匯入後顯示班表預覽與檢測報告</label>
+        </div>
+        <div class="option-item">
+        </div>
+    </div>
+
+    <!-- 寫入行為設定 -->
+    <div class="section">
+        <h3>✏️ 寫入行為設定</h3>
+        <p class="dict-note">當 Excel 班表中某格為空白時，寫入 HR 系統的處理方式：</p>
+        <div class="radio-item">
+            <input type="radio" name="blankFillMode" id="modeKeep" value="keep">
+            <label for="modeKeep">維持現狀（不動網頁上已有的值）</label>
+        </div>
+        <div class="radio-item">
+            <input type="radio" name="blankFillMode" id="modeFill" value="fill">
+            <label for="modeFill">填入班別代號：</label>
+        </div>
+        <div class="fill-code-row">
+            <input type="text" id="blankFillCode" maxlength="5" placeholder="系統代號" disabled>
+            <span class="fill-code-hint" id="fillCodeHint"></span>
+        </div>
+    </div>
+
+    <!-- ✅ 需求 6 修正：移除重複的班別管理 UI，統一交由 dict_manager 統籌 -->
+    <div class="section">
+        <h3>📖 班別字典管理</h3>
+        <p class="dict-note">HR 系統內建班別與使用者自定義班別，統一由「班別字典管理」視窗進行設定。</p>
+        <button class="btn btn-link" id="openDictManager">📖 開啟班別字典管理</button>
+    </div>
+
+    <button class="btn btn-save" id="saveSettings">💾 儲存所有設定</button>
+
+    <script src="options.js"></script>
+</body>
+</html>

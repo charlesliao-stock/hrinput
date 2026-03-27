@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>KMUH 班表輸入小幫手</title>
+    <style>
+        body { width: 227px; padding: 15px; font-family: "Microsoft JhengHei", sans-serif; background-color: #f8f9fa; }
+        .container { display: flex; flex-direction: column; gap: 10px; }
+        h2 { margin: 0 0 10px 0; font-size: 18px; color: #2c3e50; text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 8px; }
+        .step-box { background: white; padding: 10px; border-radius: 6px; border: 1px solid #dee2e6; }
+        .step-title { font-weight: bold; font-size: 14px; margin-bottom: 8px; color: #34495e; }
+        button { width: 100%; padding: 10px; font-size: 14px; cursor: pointer; border: none; border-radius: 4px; background-color: #3498db; color: white; }
+        button:hover { background-color: #2980b9; }
+        #status { margin-top: 10px; padding: 8px; font-size: 13px; border-radius: 4px; background-color: #e9ecef; color: #495057; text-align: center; min-height: 20px; }
+        #sheetSelectBox { display: none; background: #fff3cd; border: 1px solid #ffeeba; padding: 10px; border-radius: 6px; margin-top: 5px; }
+        #sheetSelectBox select { width: 100%; padding: 5px; margin-top: 5px; }
+        .settings-section { margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+        .sub-btn { background: #ecf0f1; color: #2c3e50; padding: 5px 10px; font-size: 12px; border: 1px solid #bdc3c7; text-align: left; cursor: pointer; border-radius: 3px; display: inline-block; }
+        #excelFile { display: none; }
+        #step3Box, #step4Box { display: none; }
+    </style>
+</head>
+<body>
+    <h2>💉 KMUH 班表輸入小幫手</h2>
+    <div class="container">
+        <div class="step-box">
+            <div class="step-title">1️⃣ 讀取本月班表</div>
+            <button id="step1Btn">💾 記憶本月並跳轉</button>
+        </div>
+        <div class="step-box">
+            <div class="step-title">2️⃣ 載入 次月Excel班表</div>
+            <button id="step2Btn">📂 選擇 Excel 檔案</button>
+            <input type="file" id="excelFile" accept=".xlsx, .xls">
+            <div id="sheetSelectBox">
+                <div style="font-size:12px; color:#856404; margin-bottom:4px;">📋 偵測到多個工作表，請選擇：</div>
+                <select id="sheetSelect"></select>
+                <button id="sheetConfirmBtn" style="margin-top:6px; background:#27ae60;">✅ 確認匯入此工作表</button>
+            </div>
+        </div>
+        <div id="step3Box" class="step-box"><div class="step-title">3️⃣ 檢測區</div><button id="step3Btn" style="background-color: #f39c12;">🔍 檢測報告</button></div>
+        <div id="step4Box" class="step-box"><div class="step-title">4️⃣ 寫入區</div><button id="step4Btn" style="background-color: #27ae60;">🚀 開始寫入</button></div>
+        <div id="status">準備就緒</div>
+        <div class="settings-section">
+            <div class="sub-btn" id="openQuickSettings">⚙️ 選項設定</div>
+            <div class="sub-btn" id="openDictManager">📖 班別字典管理</div>
+        </div>
+    </div>
+    <script src="xlsx.full.min.js"></script>
+    <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>班別字典管理</title>
+    <style>
+        html, body {
+            width: 780px;
+            margin: 0;
+            padding: 0;
+            background-color: #f1f2f6;
+            font-family: "Microsoft JhengHei", sans-serif;
+            overflow: hidden;
+        }
+
+        .main-container {
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        h3 {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+        }
+
+        .scroll-area {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+
+        .collapsible {
+            background-color: #3498db;
+            color: white;
+            cursor: pointer;
+            padding: 12px;
+            width: 100%;
+            border: none;
+            text-align: left;
+            font-size: 14px;
+            margin-top: 8px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .active, .collapsible:hover { background-color: #2980b9; }
+
+        .content {
+            padding: 10px;
+            display: none;
+            background-color: white;
+            border: 1px solid #ddd;
+            border-top: none;
+            border-bottom-left-radius: 5px;
+            border-bottom-right-radius: 5px;
+        }
+
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { background: #f8f9fa; position: sticky; top: 0; }
+        th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
+
+        input[type="text"], input[type="time"] {
+            width: 90%;
+            padding: 4px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            text-align: center;
+            font-size: 12px;
+        }
+        input[type="time"] { width: 85%; }
+
+        /* 時間欄位：跳過狀態（休假/加班類） */
+        input[type="time"].skip-shift {
+            background: #f0f0f0;
+            color: #aaa;
+            cursor: not-allowed;
+        }
+        td.skip-label {
+            color: #999;
+            font-size: 11px;
+            font-style: italic;
+        }
+
+        .action-btns { margin-top: 10px; display: flex; gap: 10px; }
+
+        .add-row-btn {
+            background: #ecf0f1;
+            border: 1px dashed #7f8c8d;
+            padding: 5px 15px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+
+        .del-btn { background: #ff7675; color: white; border: none; padding: 3px 8px; cursor: pointer; border-radius: 3px; }
+
+        /* 自定義班別 sys 欄空白警示 */
+        input.sys-empty {
+            border-color: #e74c3c;
+            background: #fff5f5;
+        }
+
+        .save-area { padding-top: 15px; }
+        .save-btn {
+            width: 100%;
+            padding: 12px;
+            background: #27ae60;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: bold;
+            border-radius: 5px;
+        }
+        .save-btn:hover { background: #219150; }
+
+        /* 錯誤橫幅 */
+        .error-banner {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 6px;
+            padding: 10px 14px;
+            margin-bottom: 10px;
+            font-size: 13px;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <h3>📖 班別字典管理</h3>
+
+        <div class="scroll-area">
+            <!-- HR 內建班別：含代號、上班時間、下班時間 -->
+            <button type="button" class="collapsible">➕ HR 系統內建班別（含接班時間設定）</button>
+            <div class="content">
+                <table id="hrTable">
+                    <thead>
+                        <tr>
+                            <th width="18%">系統代號</th>
+                            <th width="25%">上班時間</th>
+                            <th width="25%">下班時間</th>
+                            <th width="20%">備註</th>
+                            <th width="12%">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="hrBody"></tbody>
+                </table>
+                <div class="action-btns"><button class="add-row-btn" id="addHrRow">+ 新增內建項</button></div>
+            </div>
+
+            <!-- 自定義班別 -->
+            <button type="button" class="collapsible">➕ 使用者自定義班別</button>
+            <div class="content">
+                <table id="customTable">
+                    <thead>
+                        <tr>
+                            <th>Excel</th><th>系統 *</th><th>逾時</th><th>上午</th><th>下午</th><th>夜間</th><th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="customBody"></tbody>
+                </table>
+                <div class="action-btns"><button class="add-row-btn" id="addCustomRow">+ 新增自定義項</button></div>
+            </div>
+        </div>
+
+        <div class="save-area">
+            <button class="save-btn" id="saveAll">💾 儲存所有字典設定</button>
+        </div>
+    </div>
+
+    <script src="dict_manager.js"></script>
+</body>
+</html>
