@@ -18,7 +18,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateAlert.style.display = 'block';
             updateVersion.textContent = `最新版本：v${data.latestVersion}`;
             downloadUpdateBtn.onclick = () => {
-                chrome.tabs.create({ url: 'https://github.com/charlesliao-stock/hrinput' });
+                // 直接下載 ZIP 檔
+                const downloadUrl = data.downloadUrl || 'https://github.com/charlesliao-stock/hrinput/archive/refs/heads/main.zip';
+                chrome.tabs.create({ url: downloadUrl });
+                
+                // 提示使用者後續步驟
+                statusDiv.innerHTML = "<b>📥 已開始下載更新檔！</b><br>請解壓縮後，到 Chrome 擴充功能頁面點擊「重新載入」即可完成更新。";
             };
         }
     });
