@@ -329,22 +329,24 @@ function runDetailedCheck(old, exc, dict, hrTimeMap, cycleRanges, ffRanges, oldM
         }
 
         const oldShifts = hasOldData ? oStf.shifts : Array(oldMonthDays).fill('');
-        const combined  = [...oldShifts, ...exc[id].shifts].map(s => {
+        const rawExcelShifts = exc[id].shifts; // 原始 Excel 代號
+        const combined  = [...oldShifts, ...rawExcelShifts].map(s => {
             const d = dict.find(x => String(x.excel).trim() === String(s).trim());
             return d ? d.sys : s;
         });
 
-        // ── 新增：W+ 與 N+ 班別替換檢查 (僅針對匯入的新月份) ──
-        for (let gi = oldMonthDays; gi <= validEnd; gi++) {
-            const code = combined[gi];
-            if (code === 'W+' || code === 'N+') {
+        // ── 新增：W+ 與 N+ 班別替換檢查 (僅針對匯入的新月份原始代號) ──
+        for (let i = 0; i < rawExcelShifts.length; i++) {
+            const rawCode = String(rawExcelShifts[i] || "").trim();
+            const gi = oldMonthDays + i;
+            if (rawCode === 'W+' || rawCode === 'N+') {
                 const dateStr = toDate(gi);
                 err.push({
                     empId:    id,
                     startIdx: gi,
                     endIdx:   gi,
                     type:     'REPLACE_REQUIRED',
-                    msg:      `⚠️ 建議更換：${dateStr} 使用了 ${code} 代號，請更換為正確的加班代號（如加班小時別）。`,
+                    msg:      `⚠️ 建議更換：${dateStr} Excel 原始代號為 ${rawCode}，請更換為正確的加班代號（如加班小時別）。`,
                 });
             }
         }
