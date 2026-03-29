@@ -327,24 +327,8 @@ function runDetailedCheck(old, exc, dict, hrTimeMap, cycleRanges, ffRanges, oldM
             return d ? d.sys : s;
         });
 
-        // ── 新增：W+ 與 N+ 班別替換檢查 (僅針對匯入的新月份) ──
-        for (let gi = oldMonthDays; gi <= validEnd; gi++) {
-            const code = combined[gi];
-            if (code === 'W+' || code === 'N+') {
-                const dateStr = toDate(gi);
-                err.push({
-                    empId:    id,
-                    startIdx: gi,
-                    endIdx:   gi,
-                    type:     'REPLACE_REQUIRED',
-                    msg:      `⚠️ 建議更換：${dateStr} 使用了 ${code} 代號，請更換為正確的加班代號（如加班小時別）。`,
-                });
-            }
-        }
-
         const isRangeValid = (r) => r.startIdx >= validStart && r.endIdx <= validEnd;
 
-        // FF 雙週檢查
         ffRanges.forEach((r, i) => {
             if (!isRangeValid(r)) return;
             const count = combined.slice(r.startIdx, r.endIdx + 1).filter(s => s === 'FF').length;
@@ -359,7 +343,6 @@ function runDetailedCheck(old, exc, dict, hrTimeMap, cycleRanges, ffRanges, oldM
             }
         });
 
-        // FF 間隔檢查 (不可超過 12 天)
         const ffIndices = [];
         for (let gi = validStart; gi <= validEnd; gi++) {
             if (combined[gi] === 'FF') ffIndices.push(gi);
@@ -379,7 +362,6 @@ function runDetailedCheck(old, exc, dict, hrTimeMap, cycleRanges, ffRanges, oldM
             }
         }
 
-        // 四週變形檢查 (WW+W+ 應為 4 天)
         cycleRanges.forEach((r, i) => {
             if (!isRangeValid(r)) return;
             const count = combined.slice(r.startIdx, r.endIdx + 1)
@@ -395,7 +377,6 @@ function runDetailedCheck(old, exc, dict, hrTimeMap, cycleRanges, ffRanges, oldM
             }
         });
 
-        // 接班間隔檢查 (應達 11 小時)
         let prevCode    = null;
         let prevEndMin  = null;
         let prevGi      = -1;
@@ -421,7 +402,7 @@ function runDetailedCheck(old, exc, dict, hrTimeMap, cycleRanges, ffRanges, oldM
                 const nextStartAbs = prevGi * 1440 + nextDayOffset + startMin;
                 const gap = nextStartAbs - prevEndAbs;
 
-                const MIN_GAP = 660; // 11 小時 = 660 分鐘
+                const MIN_GAP = 660;
                 if (gap < MIN_GAP) {
                     const gapH   = Math.floor(Math.max(gap, 0) / 60);
                     const gapM   = Math.max(gap, 0) % 60;
@@ -548,7 +529,6 @@ function renderModalContent(title) {
         { color: '#e74c3c', bg: '#fff2f2', label: '四週變形/FF數量錯誤' },
         { color: '#e67e22', bg: '#fff8f0', label: 'FF間隔超過12天' },
         { color: '#8e44ad', bg: '#fdf2ff', label: '接班間距不足11小時' },
-	{ color: '#f39c12', bg: '#fef5e7', label: '建議更換 W+/N+' }, // 新增圖例
     ].map(x =>
         `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:10px;">
           <span style="display:inline-block;width:24px;height:14px;background:${x.bg};border:2px solid ${x.color};border-radius:2px;"></span>
@@ -596,12 +576,10 @@ function renderModalContent(title) {
             FF: { border: '#e74c3c', bg: '#fff2f2' },
             GAP: { border: '#e67e22', bg: '#fff8f0' },
             REST: { border: '#8e44ad', bg: '#fdf2ff' },
-	    REPLACE_REQUIRED: { border: '#f39c12', bg: '#fef5e7' } // 新增：W+/N+ 提示專用橘色
         };
 
         function getErrColor(type) {
             if (!type) return ERR_COLOR_MAP.WW;
-	    if (type === 'REPLACE_REQUIRED') return ERR_COLOR_MAP.REPLACE_REQUIRED; // 新增判斷
             if (type === 'FF_GAP') return ERR_COLOR_MAP.GAP;
             if (type === 'REST_SHORT') return ERR_COLOR_MAP.REST;
             if (type.startsWith('FF_')) return ERR_COLOR_MAP.FF;
