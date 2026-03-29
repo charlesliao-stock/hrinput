@@ -200,7 +200,14 @@ async function handleExcelProcess(req) {
     const oldYymm     = storage.lastMonthData?.yymm || "";
     const targetYymm  = oldYymm ? getNextYM(oldYymm) : "";
     const targetMonth = targetYymm ? parseInt(targetYymm.substring(4, 6)) : -1;
-    const excelMap    = parseExcel(req.excelData, targetYymm);
+    
+    const excelMap = parseExcel(req.excelData, targetYymm);
+    
+    // ── 檢查解析結果是否包含錯誤 ──
+    if (excelMap.error) {
+        return { success: false, message: excelMap.message };
+    }
+
     const customDict  = storage.shiftDict || [];
     const hrShiftsRaw = storage.hrShifts  || [];
     const lastData    = storage.lastMonthData;
@@ -936,29 +943,43 @@ function detectExcelLayout(data, targetYymm) {
     }
 
     if (nameColIdx === -1 && empIdColIdx !== -1) nameColIdx = empIdColIdx + 1;
+    
+    // ── 格式校驗 ──
+    const isFormatValid = empIdColIdx !== -1 && day1ColIdx !== -1;
+
     return {
-        empIdColIdx: empIdColIdx !== -1 ? empIdColIdx : 1,
-        nameColIdx:  nameColIdx  !== -1 ? nameColIdx  : 2,
-        day1ColIdx:  day1ColIdx  !== -1 ? day1ColIdx  : 3,
-        monthDays
+        empIdColIdx,
+        nameColIdx,
+        day1ColIdx,
+        monthDays,
+        isFormatValid
     };
 }
 
 function parseExcel(data, targetYymm) {
-    const { empIdColIdx, nameColIdx, day1ColIdx, monthDays } = detectExcelLayout(data, targetYymm);
+    const layout = detectExcelLayout(data, targetYymm);
+    if (!layout.isFormatValid) {
+        return { error: "INVALID_FORMAT", message: "❌ 無法辨識 Excel 格式。\n請確認檔案中是否包含「職編」關鍵字，以及「1號」日期欄位。" };
+    }
+
     const m = {};
     data.forEach(r => {
-        const rawId = String(r[empIdColIdx] || "").trim();
+        const rawId = String(r[layout.empIdColIdx] || "").trim();
         if (!/^\d{6,7}$/.test(rawId)) return;
         const empId  = formatEmpId(rawId);
-        const name   = String(r[nameColIdx] || "").trim();
+        const name   = String(r[layout.nameColIdx] || "").trim();
         const shifts = [];
-        for (let i = 0; i < monthDays; i++) {
-            const val = r[day1ColIdx + i];
+        for (let i = 0; i < layout.monthDays; i++) {
+            const val = r[layout.day1ColIdx + i];
             shifts.push(val !== undefined && val !== null ? String(val).trim() : "");
         }
         m[empId] = { name, shifts };
     });
+
+    if (Object.keys(m).length === 0) {
+        return { error: "NO_DATA", message: "❌ 格式辨識成功，但未找到任何有效的員工資料列。\n請確認職編是否為 6~7 位數字。" };
+    }
+
     return m;
 }
 
