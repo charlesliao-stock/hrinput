@@ -6,7 +6,7 @@
     <style>
         body { width: 227px; padding: 15px; font-family: "Microsoft JhengHei", sans-serif; background-color: #f8f9fa; }
         .container { display: flex; flex-direction: column; gap: 10px; }
-        h2 { margin: 0 0 10px 0; font-size: 18px; color: #2c3e50; text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 8px; }
+        h2 { margin: 0 0 10px 0; font-size: 18px; color: #2c3e50; text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 8px; cursor: pointer; }
         .step-box { background: white; padding: 10px; border-radius: 6px; border: 1px solid #dee2e6; }
         .step-title { font-weight: bold; font-size: 14px; margin-bottom: 8px; color: #34495e; }
         button { width: 100%; padding: 10px; font-size: 14px; cursor: pointer; border: none; border-radius: 4px; background-color: #3498db; color: white; }
@@ -24,29 +24,45 @@
             display: none; 
             background: #e74c3c; 
             color: white; 
-            padding: 10px; 
-            border-radius: 6px; 
-            margin-bottom: 10px; 
+            padding: 12px; 
+            border-radius: 8px; 
+            margin-bottom: 12px; 
             font-size: 12px; 
-            text-align: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 10px rgba(231, 76, 60, 0.3);
         }
-        #updateAlert b { display: block; margin-bottom: 5px; font-size: 14px; }
+        #updateAlert b { display: block; margin-bottom: 6px; font-size: 15px; text-align: center; }
+        #updateAlert .guide { 
+            background: rgba(255,255,255,0.15); 
+            padding: 8px; 
+            border-radius: 4px; 
+            margin: 8px 0; 
+            line-height: 1.5;
+            text-align: left;
+        }
         #updateAlert button { 
             background: white; 
             color: #e74c3c; 
-            padding: 5px; 
-            font-size: 12px; 
-            margin-top: 5px; 
+            padding: 8px; 
+            font-size: 13px; 
             font-weight: bold;
+            border-radius: 4px;
+            border: none;
+            transition: transform 0.1s;
         }
+        #updateAlert button:active { transform: scale(0.98); }
     </style>
 </head>
 <body>
     <div id="updateAlert">
         <b>🚀 發現新版本！</b>
-        <span id="updateVersion"></span>
-        <button id="downloadUpdateBtn">立即前往 GitHub 下載</button>
+        <div id="updateVersion" style="text-align:center; margin-bottom:8px;"></div>
+        <div class="guide">
+            <b>💡 更新三步驟：</b>
+            1. 點擊下方按鈕下載 ZIP<br>
+            2. 解壓縮並覆蓋舊資料夾<br>
+            3. 到擴充功能頁面點擊「重新載入」
+        </div>
+        <button id="downloadUpdateBtn">📥 立即下載更新檔 (ZIP)</button>
     </div>
 
     <h2>💉 KMUH 班表輸入小幫手</h2>
