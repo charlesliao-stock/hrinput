@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
   "name": "KMUH 班表輸入小幫手",
-  "version": "1.0",
+  "version": "1.1",
   "description": "支援跨月自動跳轉、多工作表選取與字典預檢",
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage", "activeTab", "scripting", "tabs"],
+  "permissions": ["storage", "activeTab", "scripting", "tabs", "alarms"],
   "action": {
     "default_popup": "popup.html"
   },
@@ -32,7 +32,10 @@
       "world": "MAIN"
     }
   ],
-  "host_permissions": ["*://hr.kmuh.org.tw/*"],
+  "host_permissions": [
+    "*://hr.kmuh.org.tw/*",
+    "https://raw.githubusercontent.com/charlesliao-stock/hrinput/*"
+  ],
   "web_accessible_resources": [
     {
       "resources": [

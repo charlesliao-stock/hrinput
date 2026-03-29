@@ -1,33 +1,63 @@
 // background.js - Service Worker
 // 1. 首次安裝時初始化 HR 預設班別到 storage（唯一定義來源）
 // 2. 持久監聽 content.js 的 modalClosed 訊息並執行分頁跳轉
+// 3. 定期檢查 GitHub 更新
+
+const VERSION_CHECK_URL = "https://raw.githubusercontent.com/charlesliao-stock/hrinput/main/version.json";
 
 // HR 系統內建班別預設清單（含上下班時間）
-// start / end 為 "HH:MM" 格式；休假類與加班類不設時間（null），接班檢測時跳過
 const DEFAULT_HR_SHIFTS = [
   { code: "84",  start: "08:00", end: "16:30" },
   { code: "85",  start: "08:00", end: "17:30" },
-  { code: "4N",  start: "16:00", end: "00:30" },  // 跨日班，00:30 表示隔天凌晨0:30
+  { code: "4N",  start: "16:00", end: "00:30" },
   { code: "5G",  start: "17:30", end: "21:30" },
   { code: "PH",  start: "00:00", end: "08:30" },
-  { code: "SS",  start: "08:00", end: "17:30" },  // 放假，但時間比照85
-  { code: "VV",  start: "08:00", end: "17:30" },  // 放假，但時間比照85
+  { code: "SS",  start: "08:00", end: "17:30" },
+  { code: "VV",  start: "08:00", end: "17:30" },
   { code: "DL",  start: "13:30", end: "22:00" },
-  { code: "FF",  start: null,    end: null    },   // 例休，跳過接班檢測
-  { code: "WW",  start: null,    end: null    },   // 週休，跳過接班檢測
-  { code: "W+",  start: null,    end: null    },   // 休息日加班，跳過接班檢測
-  { code: "NH",  start: null,    end: null    },   // 國定假，跳過接班檢測
-  { code: "N+",  start: null,    end: null    },   // 假日加班，跳過接班檢測
+  { code: "FF",  start: null,    end: null    },
+  { code: "WW",  start: null,    end: null    },
+  { code: "W+",  start: null,    end: null    },
+  { code: "NH",  start: null,    end: null    },
+  { code: "N+",  start: null,    end: null    },
 ];
 
+// 檢查更新函式
+async function checkForUpdates() {
+  try {
+    const response = await fetch(VERSION_CHECK_URL);
+    const data = await response.json();
+    const currentVersion = chrome.runtime.getManifest().version;
+
+    if (data.version !== currentVersion) {
+      console.log(`[更新偵測] 發現新版本: ${data.version} (目前: ${currentVersion})`);
+      chrome.storage.local.set({ 
+        updateAvailable: true, 
+        latestVersion: data.version,
+        downloadUrl: data.downloadUrl,
+        changelog: data.changelog
+      });
+      // 在圖示上顯示 "New" 標籤
+      chrome.action.setBadgeText({ text: "New" });
+      chrome.action.setBadgeBackgroundColor({ color: "#e74c3c" });
+    } else {
+      chrome.storage.local.set({ updateAvailable: false });
+      chrome.action.setBadgeText({ text: "" });
+    }
+  } catch (error) {
+    console.error("[更新偵測] 檢查失敗:", error);
+  }
+}
+
 chrome.runtime.onInstalled.addListener(() => {
-  // 初始化 autoMode 預設為開啟（僅在尚未設定時寫入）
+  // 初始化 autoMode
   chrome.storage.local.get('autoMode', (d) => {
     if (d.autoMode === undefined) {
       chrome.storage.local.set({ autoMode: true });
     }
   });
 
+  // 初始化 HR 班別
   chrome.storage.local.get('hrShifts', (data) => {
     if (!data.hrShifts || data.hrShifts.length === 0) {
       chrome.storage.local.set({ hrShifts: DEFAULT_HR_SHIFTS });
@@ -48,10 +78,20 @@ chrome.runtime.onInstalled.addListener(() => {
       }
     }
   });
+
+  // 設定定時檢查更新 (每 6 小時檢查一次)
+  chrome.alarms.create("checkUpdate", { periodInMinutes: 360 });
+  checkForUpdates();
+});
+
+// 監聽定時任務
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "checkUpdate") {
+    checkForUpdates();
+  }
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-
   if (request.action === "modalClosed") {
     chrome.storage.local.get(['pendingNextUrl', 'autoMode'], (data) => {
       if (data.autoMode && data.pendingNextUrl) {
@@ -85,4 +125,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === "manualCheckUpdate") {
+    checkForUpdates().then(() => sendResponse({ ok: true }));
+    return true;
+  }
 });

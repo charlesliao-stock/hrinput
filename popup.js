@@ -8,6 +8,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     let currentWorkbook = null;
     let lastSelectedSheet = null;
 
+    // --- 更新提醒邏輯 ---
+    const updateAlert = document.getElementById('updateAlert');
+    const updateVersion = document.getElementById('updateVersion');
+    const downloadUpdateBtn = document.getElementById('downloadUpdateBtn');
+
+    chrome.storage.local.get(['updateAvailable', 'latestVersion', 'downloadUrl'], (data) => {
+        if (data.updateAvailable) {
+            updateAlert.style.display = 'block';
+            updateVersion.textContent = `最新版本：v${data.latestVersion}`;
+            downloadUpdateBtn.onclick = () => {
+                chrome.tabs.create({ url: 'https://github.com/charlesliao-stock/hrinput' });
+            };
+        }
+    });
+
+    // 手動觸發檢查更新 (點擊標題時)
+    document.querySelector('h2').onclick = () => {
+        statusDiv.textContent = "⏳ 正在檢查更新...";
+        chrome.runtime.sendMessage({ action: "manualCheckUpdate" }, (res) => {
+            setTimeout(() => {
+                chrome.storage.local.get(['updateAvailable'], (d) => {
+                    statusDiv.textContent = d.updateAvailable ? "🚀 發現新版本！" : "✅ 目前已是最新版本";
+                });
+            }, 1000);
+        });
+    };
+
     document.getElementById('openQuickSettings').onclick = () => chrome.windows.create({ url: 'quick_settings.html', type: 'popup', width: 360, height: 400 });
     document.getElementById('openDictManager').onclick   = () => chrome.windows.create({ url: 'dict_manager.html',   type: 'popup', width: 780, height: 500 });
 
@@ -44,11 +71,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             return await chrome.tabs.sendMessage(tab.id, msg);
         } catch (e) {
-            // content.js 尚未注入（例如擴充功能剛安裝/更新後的既有分頁）
-            // 嘗試用 scripting API 動態注入，再重新發送訊息
             try {
                 await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-                // 等待 content.js 完成初始化
                 await new Promise(r => setTimeout(r, 500));
                 return await chrome.tabs.sendMessage(tab.id, msg);
             } catch (e2) {
@@ -64,7 +88,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const res = await sendMessage({
             action: "readAndMemorize",
             showPreview: set.showWebPreview !== false,
-            autoMode: set.autoMode || false   // ✅ 修正：傳遞 autoMode，讓 content.js 能在 confirm 前正確存入 pendingNextUrl
+            autoMode: set.autoMode || false
         });
 
         if (res?.success) {
@@ -78,10 +102,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             if (set.autoMode && res.nextUrl) {
                 if (res.hasPreview) {
-                    // pendingNextUrl 已由 content.js 在顯示 modal 前存入，此處只更新提示文字
                     statusDiv.textContent = `${msg}\n⌛ 請查看網頁預覽，關閉後將自動跳轉...`;
                 } else {
-                    // 無預覽：直接跳轉
                     statusDiv.textContent = "⚡ 立即執行自動跳轉...";
                     setTimeout(() => chrome.tabs.update({ url: res.nextUrl }), 800);
                 }
@@ -94,7 +116,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     // --- 步驟 2：選擇 Excel 檔案 ---
     document.getElementById('step2Btn').onclick = () => excelFile.click();
 
-    // 步驟 2：檔案變更 → 讀取並判斷 Sheet 數量
     excelFile.addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -106,8 +127,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             try {
                 currentWorkbook = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
                 const sheetNames = currentWorkbook.SheetNames;
-
-                // 每次載入新檔案，先隱藏選擇框
                 document.getElementById('sheetSelectBox').style.display = 'none';
 
                 if (sheetNames.length === 0) {
@@ -116,12 +135,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
 
                 if (sheetNames.length === 1) {
-                    // 單一 Sheet：直接自動匯入
                     statusDiv.textContent = `偵測到唯一工作表「${sheetNames[0]}」，自動匯入中...`;
                     lastSelectedSheet = sheetNames[0];
                     await processExcelSheet(sheetNames[0]);
                 } else {
-                    // 多個 Sheet：顯示選擇介面
                     const sel = document.getElementById('sheetSelect');
                     sel.innerHTML = sheetNames.map((name, i) =>
                         `<option value="${name}">${i + 1}. ${name}</option>`
@@ -136,10 +153,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
 
         reader.readAsArrayBuffer(file);
-        e.target.value = ""; // 允許重複選同一檔案
+        e.target.value = "";
     });
 
-    // 步驟 2：確認匯入選定的工作表（多 Sheet 情況）
     document.getElementById('sheetConfirmBtn').onclick = async () => {
         const selectedSheet = document.getElementById('sheetSelect').value;
         if (!selectedSheet || !currentWorkbook) return;
@@ -148,7 +164,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         await processExcelSheet(selectedSheet);
     };
 
-    // 統一的 Excel 工作表處理函式
     async function processExcelSheet(sheetName) {
         if (!currentWorkbook) {
             statusDiv.textContent = "❌ 請先載入 Excel 檔案";
@@ -170,7 +185,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('step4Box').style.display = 'block';
             statusDiv.textContent = `✅ [${sheetName}] 通過檢測，可執行寫入`;
 
-            // 無舊月資料的人員提示
             if (res.noOldDataWarnings && res.noOldDataWarnings.length > 0) {
                 const list = res.noOldDataWarnings.map(w => `• ${w.empId} ${w.name}`).join('<br>');
                 const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
@@ -211,7 +225,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    // --- 步驟 3：手動觸發檢測報告 ---
     document.getElementById('step3Btn').onclick = async () => {
         if (!currentWorkbook) { statusDiv.textContent = "❌ 請先載入 Excel 檔案"; return; }
         const sheetName = lastSelectedSheet || currentWorkbook.SheetNames[0];
@@ -229,7 +242,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         statusDiv.textContent = res?.success ? "✅ 檢測完成，請查看報告" : (res?.message || "❌ 檢測未通過");
     };
 
-    // --- 步驟 4：寫入 ---
     document.getElementById('step4Btn').onclick = async () => {
         if (!currentWorkbook) {
             statusDiv.textContent = "❌ 請先載入 Excel 檔案";

@@ -18,9 +18,37 @@
         .sub-btn { background: #ecf0f1; color: #2c3e50; padding: 5px 10px; font-size: 12px; border: 1px solid #bdc3c7; text-align: left; cursor: pointer; border-radius: 3px; display: inline-block; }
         #excelFile { display: none; }
         #step3Box, #step4Box { display: none; }
+        
+        /* 更新提醒樣式 */
+        #updateAlert { 
+            display: none; 
+            background: #e74c3c; 
+            color: white; 
+            padding: 10px; 
+            border-radius: 6px; 
+            margin-bottom: 10px; 
+            font-size: 12px; 
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        #updateAlert b { display: block; margin-bottom: 5px; font-size: 14px; }
+        #updateAlert button { 
+            background: white; 
+            color: #e74c3c; 
+            padding: 5px; 
+            font-size: 12px; 
+            margin-top: 5px; 
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
+    <div id="updateAlert">
+        <b>🚀 發現新版本！</b>
+        <span id="updateVersion"></span>
+        <button id="downloadUpdateBtn">立即前往 GitHub 下載</button>
+    </div>
+
     <h2>💉 KMUH 班表輸入小幫手</h2>
     <div class="container">
         <div class="step-box">
