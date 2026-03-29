@@ -25,8 +25,10 @@ const DEFAULT_HR_SHIFTS = [
 // 檢查更新函式
 async function checkForUpdates() {
   try {
-    const response = await fetch(VERSION_CHECK_URL);
-    const data = await response.json();
+    const response = await fetch(VERSION_CHECK_URL + "?t=" + Date.now()); // 加入 timestamp 避免快取
+    const text = await response.text();
+    // 移除可能存在的 BOM 或隱藏字元，並解析 JSON
+    const data = JSON.parse(text.trim());
     const currentVersion = chrome.runtime.getManifest().version;
 
     if (data.version !== currentVersion) {
