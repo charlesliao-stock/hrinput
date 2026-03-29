@@ -1,5 +1,0 @@
-{
-  "version": "1.1.0",
-  "download_url": "https://github.com/你的帳號/專案名/archive/refs/heads/main.zip",
-  "changelog": "修正 W+/N+ 檢核邏輯，增加更新偵測功能。"
-}
