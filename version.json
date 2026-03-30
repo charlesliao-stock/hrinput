@@ -1,5 +1,5 @@
 {
-  "version": "1.1",
+  "version": "1.4",
   "downloadUrl": "https://github.com/charlesliao-stock/hrinput/archive/refs/heads/main.zip",
-  "changelog": "新增 GitHub 自動更新提醒功能。"
+  "changelog": "新增W+/N+提醒、修正下拉選單。"
 }
