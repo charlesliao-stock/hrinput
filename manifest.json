@@ -28,7 +28,7 @@
         "*://hr.kmuh.org.tw/Customize/Attendance/kmuhdeptshift.aspx*"
       ],
       "js": ["content_query.js"],
-      "run_at": "document_start",
+      "run_at": "document_idle",
       "world": "MAIN"
     }
   ],
