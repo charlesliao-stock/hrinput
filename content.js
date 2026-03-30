@@ -329,7 +329,7 @@ function runDetailedCheck(old, exc, dict, hrTimeMap, cycleRanges, ffRanges, oldM
         }
 
         const oldShifts = hasOldData ? oStf.shifts : Array(oldMonthDays).fill('');
-        const rawExcelShifts = exc[id].shifts; // 原始 Excel 代號
+        const rawExcelShifts = exc[id].shifts;
         const combined  = [...oldShifts, ...rawExcelShifts].map(s => {
             const d = dict.find(x => String(x.excel).trim() === String(s).trim());
             return d ? d.sys : s;
@@ -557,7 +557,7 @@ function renderModalContent(title) {
         { color: '#e74c3c', bg: '#fff2f2', label: '四週變形/FF數量錯誤' },
         { color: '#e67e22', bg: '#fff8f0', label: 'FF間隔超過12天' },
         { color: '#8e44ad', bg: '#fdf2ff', label: '接班間距不足11小時' },
-	{ color: '#f39c12', bg: '#fef5e7', label: '建議更換 W+/N+' }, // 新增圖例
+        { color: '#f39c12', bg: '#fef5e7', label: '建議更換 W+/N+' },
     ].map(x =>
         `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:10px;">
           <span style="display:inline-block;width:24px;height:14px;background:${x.bg};border:2px solid ${x.color};border-radius:2px;"></span>
@@ -605,12 +605,12 @@ function renderModalContent(title) {
             FF: { border: '#e74c3c', bg: '#fff2f2' },
             GAP: { border: '#e67e22', bg: '#fff8f0' },
             REST: { border: '#8e44ad', bg: '#fdf2ff' },
-	    REPLACE_REQUIRED: { border: '#f39c12', bg: '#fef5e7' } // 新增：W+/N+ 提示專用橘色
+            REPLACE_REQUIRED: { border: '#f39c12', bg: '#fef5e7' }
         };
 
         function getErrColor(type) {
             if (!type) return ERR_COLOR_MAP.WW;
-	    if (type === 'REPLACE_REQUIRED') return ERR_COLOR_MAP.REPLACE_REQUIRED; // 新增判斷
+            if (type === 'REPLACE_REQUIRED') return ERR_COLOR_MAP.REPLACE_REQUIRED;
             if (type === 'FF_GAP') return ERR_COLOR_MAP.GAP;
             if (type === 'REST_SHORT') return ERR_COLOR_MAP.REST;
             if (type.startsWith('FF_')) return ERR_COLOR_MAP.FF;
