@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "KMUH 班表輸入小幫手",
-  "version": "1.4",
+  "version": "1.5",
   "description": "支援跨月自動跳轉、多工作表選取與字典預檢",
   "background": {
     "service_worker": "background.js"

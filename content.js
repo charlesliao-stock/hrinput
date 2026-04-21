@@ -804,7 +804,8 @@ async function executeInjectionFlowFromMap(excelMap) {
         const sfx = webMap[formatEmpId(id)];
         if (!sfx) continue;
         excelMap[id].shifts.forEach((code, i) => {
-            const el = document.getElementById(`Field_day${String(i + 1).padStart(2, '0')}_${sfx}`);
+            const dd = String(i + 1).padStart(2, '0');
+            const el = document.getElementById(`Field_day${dd}_${sfx}`);
             if (el) {
                 // 1. 處理空白填補與不覆蓋邏輯
                 let finalCode = code;
@@ -821,15 +822,36 @@ async function executeInjectionFlowFromMap(excelMap) {
                 
                 // 2. 透過班別字典轉換 (Excel 代號 -> 系統代號)
                 const dictEntry = customDict.find(x => String(x.excel).trim() === String(finalCode).trim());
+                let overCode = '', amCode = '', pmCode = '', nightCode = '';
                 if (dictEntry && dictEntry.sys) {
                     finalCode = dictEntry.sys;
+                    overCode  = String(dictEntry.over  || '').trim();
+                    amCode    = String(dictEntry.am    || '').trim();
+                    pmCode    = String(dictEntry.pm    || '').trim();
+                    nightCode = String(dictEntry.night || '').trim();
                 }
 
-                // 3. 執行寫入
+                // 3. 執行寫入：班別欄位
                 if (el.value !== finalCode) {
                     el.value = finalCode;
                     el.style.backgroundColor = "#fff3cd"; // 標記已修改
                 }
+
+                // 4. 執行寫入：附加欄位 (逾時 / 上午 / 下午 / 夜間)
+                const extraFields = [
+                    { id: `Field_whr${dd}_${sfx}`,    val: overCode  },
+                    { id: `Field_wareaa${dd}_${sfx}`,  val: amCode    },
+                    { id: `Field_wareab${dd}_${sfx}`,  val: pmCode    },
+                    { id: `Field_wareac${dd}_${sfx}`,  val: nightCode },
+                ];
+                extraFields.forEach(({ id, val }) => {
+                    if (!val) return; // 字典未填則不覆蓋原有值
+                    const f = document.getElementById(id);
+                    if (f && f.value !== val) {
+                        f.value = val;
+                        f.style.backgroundColor = "#fff3cd"; // 標記已修改
+                    }
+                });
             }
         });
     }
@@ -972,8 +994,14 @@ function parseExcel(data, targetYymm) {
         const name   = String(r[layout.nameColIdx] || "").trim();
         const shifts = [];
         for (let i = 0; i < layout.monthDays; i++) {
-            const val = r[layout.day1ColIdx + i];
-            shifts.push(val !== undefined && val !== null ? String(val).trim() : "");
+            let val = r[layout.day1ColIdx + i];
+            // ✅ 關鍵修正：移除儲存格內的所有換行符號 (84\nC -> 84C)
+            if (val !== undefined && val !== null) {
+                val = String(val).replace(/[\r\n]/g, '').trim();
+            } else {
+                val = "";
+            }
+            shifts.push(val);
         }
         m[empId] = { name, shifts };
     });
