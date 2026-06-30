@@ -6,7 +6,13 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage", "activeTab", "scripting", "tabs", "alarms"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs",
+    "alarms"
+  ],
   "action": {
     "default_popup": "popup.html"
   },
@@ -18,16 +24,32 @@
         "*://hr.kmuh.org.tw/Customize/Attendance/Kmuhdeptshiftedit.aspx*",
         "*://hr.kmuh.org.tw/Customize/Attendance/kmuhdeptshiftedit.aspx*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "content_main.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
+    },
+    {
+      "matches": [
+        "*://hr.kmuh.org.tw/Customize/Attendance/KmuhdeptshiftEdit.aspx*",
+        "*://hr.kmuh.org.tw/Customize/Attendance/Kmuhdeptshiftedit.aspx*",
+        "*://hr.kmuh.org.tw/Customize/Attendance/kmuhdeptshiftedit.aspx*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "world": "ISOLATED"
     },
     {
       "matches": [
         "*://hr.kmuh.org.tw/Customize/Attendance/Kmuhdeptshift.aspx*",
         "*://hr.kmuh.org.tw/Customize/Attendance/kmuhdeptshift.aspx*"
       ],
-      "js": ["content_query.js"],
+      "js": [
+        "content_query.js"
+      ],
       "run_at": "document_idle",
       "world": "MAIN"
     }
@@ -39,6 +61,8 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "shared.js",
+        "content_main.js",
         "display_settings.html",
         "display_settings.js",
         "dict_manager.html",
@@ -47,7 +71,9 @@
         "quick_settings.js",
         "xlsx.full.min.js"
       ],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }
