@@ -22,6 +22,22 @@ const DEFAULT_HR_SHIFTS = [
   { code: "N+",  start: null,    end: null    },
 ];
 
+// 語意化版本比較：回傳 remote 是否嚴格新於 local
+// 支援 "1.6"、"1.10"、"1.6.2" 等不同段數的版本號，逐段以數字比較（非字串比較），
+// 避免 "1.10" 被字串比較誤判成小於 "1.9"。
+function isNewerVersion(remote, local) {
+    const r = String(remote || "").trim().split(".").map(n => parseInt(n, 10) || 0);
+    const l = String(local  || "").trim().split(".").map(n => parseInt(n, 10) || 0);
+    const len = Math.max(r.length, l.length);
+    for (let i = 0; i < len; i++) {
+        const rv = r[i] || 0;
+        const lv = l[i] || 0;
+        if (rv > lv) return true;
+        if (rv < lv) return false;
+    }
+    return false; // 完全相同 → 不算更新
+}
+
 // 檢查更新函式
 async function checkForUpdates() {
   try {
@@ -31,7 +47,7 @@ async function checkForUpdates() {
     const data = JSON.parse(text.trim());
     const currentVersion = chrome.runtime.getManifest().version;
 
-    if (data.version !== currentVersion) {
+    if (isNewerVersion(data.version, currentVersion)) {
       console.log(`[更新偵測] 發現新版本: ${data.version} (目前: ${currentVersion})`);
       chrome.storage.local.set({ 
         updateAvailable: true, 
@@ -50,6 +66,14 @@ async function checkForUpdates() {
     console.error("[更新偵測] 檢查失敗:", error);
   }
 }
+
+// 瀏覽器完全關閉後重新啟動時觸發（與 onInstalled 不同，onInstalled 是安裝/更新/
+// 重新載入擴充功能時觸發；onStartup 才是「整個瀏覽器行程重啟」時觸發）。
+// 此時網頁班表可能早已被異動，之前記憶的資料已不可信，一律清除，
+// 讓 popup 視為「尚未完成步驟1」，強制使用者重新讀取。
+chrome.runtime.onStartup.addListener(() => {
+  chrome.storage.local.remove(['lastMonthData', 'pendingNextUrl']);
+});
 
 chrome.runtime.onInstalled.addListener(() => {
   // 初始化 autoMode

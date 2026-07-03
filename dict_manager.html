@@ -135,6 +135,13 @@
     <div class="main-container">
         <h3>📖 班別字典管理</h3>
 
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:12px;flex-wrap:wrap">
+            <button type="button" class="add-row-btn" id="exportBackupBtn">📤 匯出設定+字典備份</button>
+            <input type="file" id="importBackupFile" accept="application/json" style="display:none">
+            <button type="button" class="add-row-btn" id="importBackupBtn">📥 匯入備份還原</button>
+            <span id="backupStatus" style="min-height:14px"></span>
+        </div>
+
         <div class="scroll-area">
             <!-- HR 內建班別：含代號、上班時間、下班時間 -->
             <button type="button" class="collapsible">➕ HR 系統內建班別（含接班時間設定）</button>
@@ -176,5 +183,6 @@
 
     <script src="shared.js"></script>
     <script src="dict_manager.js"></script>
+    <script src="backup.js"></script>
 </body>
 </html>

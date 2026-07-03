@@ -103,9 +103,23 @@
             </div>
         </div>
 
+        <!-- 💾 資料備份與還原 -->
+        <div class="section">
+            <div class="section-title">💾 資料備份與還原</div>
+            <div style="font-size:11px;color:#888;margin-bottom:8px;line-height:1.6">
+                設定與班表字典僅儲存在本機。若擴充功能重新安裝、更換檔案儲存位置或更換電腦，
+                可事先匯出備份檔，日後再匯入還原。
+            </div>
+            <button type="button" class="save-btn" id="exportBackupBtn" style="background:#2980b9">📤 匯出備份檔</button>
+            <input type="file" id="importBackupFile" accept="application/json" style="display:none">
+            <button type="button" class="save-btn" id="importBackupBtn" style="background:#8e44ad;margin-top:8px">📥 匯入備份檔</button>
+            <div id="backupStatus" style="font-size:11px;margin-top:6px;min-height:14px"></div>
+        </div>
+
         <button class="save-btn" id="saveBtn">💾 儲存並關閉</button>
     </div>
     <script src="shared.js"></script>
     <script src="quick_settings.js"></script>
+    <script src="backup.js"></script>
 </body>
 </html>

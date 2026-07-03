@@ -16,6 +16,15 @@ function formatEmpId(id) {
     return s.padStart(7, '0');
 }
 
+// 職編有效性檢核：純數字、若第一碼為 0 則去掉該碼，
+// 剩餘長度需為 6 或 7 碼，否則視為無效職編。
+function isValidEmpId(id) {
+    const s = String(id || "").trim();
+    if (!/^\d+$/.test(s)) return false;
+    const stripped = s[0] === '0' ? s.slice(1) : s;
+    return stripped.length === 6 || stripped.length === 7;
+}
+
 function getNextYM(yymm) {
     if (!yymm || yymm.length !== 6) return "";
     let y = parseInt(yymm.substring(0, 4)), m = parseInt(yymm.substring(4, 6)) + 1;
@@ -121,16 +130,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const data = captureWebSchedule();
         const now  = new Date();
         const sysYymm = String(now.getFullYear()) + String(now.getMonth() + 1).padStart(2, '0');
-        if (data.yymm && data.yymm !== sysYymm) {
-            const proceed = confirm(
-                `⚠️ 月份提醒\n\n網頁顯示月份：${data.yymm}\n系統當前月份：${sysYymm}\n\n兩者不一致，是否仍要繼續記憶？`
-            );
-            if (!proceed) return sendResponse({ success: false, message: "使用者取消" });
+        // 月份不一致時，不在 content script 用 confirm()（會讓網頁分頁搶走焦點，
+        // 導致 popup 視窗因失焦而被瀏覽器關閉，使用者按下確定也不會有任何反應）。
+        // 改成回報 monthMismatch，交由 popup.js 在自己的視窗內跳出確認，
+        // 使用者確認後再帶 forceProceed 重新呼叫一次。
+        if (data.yymm && data.yymm !== sysYymm && !request.forceProceed) {
+            return sendResponse({ success: false, monthMismatch: true, pageYymm: data.yymm, sysYymm });
         }
         const periods   = parseCyclePeriods();
         const ffPeriods = parseFFPeriods();
         data.cyclePeriods = periods;
         data.ffPeriods    = ffPeriods;
+        data.savedAt      = Date.now();
         const nextUrl = window.location.href.replace(/yymm=\d{6}/, `yymm=${getNextYM(data.yymm)}`);
         const toSave  = { lastMonthData: data };
         if (request.autoMode && request.showPreview) {
@@ -155,11 +166,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
+    if (request.action === "preflightWarnings") {
+        handlePreflightWarnings(request).then(res => sendResponse(res));
+        return true;
+    }
+
     if (request.action === "injectOnly") {
         executeInjectionFlow(request.excelData).then(res => sendResponse(res));
         return true;
     }
 });
+
+// ─────────────────────────────────────────────────────────────────
+// 步驟 2（前置檢查）：僅比對本月／下月人員名單差異，供 popup 整合成單一
+// 匯入前確認視窗使用，不執行完整的班別規則檢測、也不開啟報告視窗。
+// ─────────────────────────────────────────────────────────────────
+async function handlePreflightWarnings(req) {
+    const storage = await chrome.storage.local.get(['lastMonthData']);
+    const { targetYymm } = deriveMonthContext(storage.lastMonthData);
+    const excelMap = parseExcel(req.excelData, targetYymm);
+    if (excelMap.error) return { success: false, message: excelMap.message };
+
+    const { departedWarnings, noOldDataWarnings } = computeMembershipWarnings(storage.lastMonthData, excelMap);
+    return { success: true, departedWarnings, noOldDataWarnings };
+}
 
 // ─────────────────────────────────────────────────────────────────
 // 步驟 2：匯入 Excel 並驗證
@@ -183,14 +213,14 @@ async function handleExcelProcess(req) {
         excelMap[id].shifts.forEach(code => {
             const cStr = String(code || "").trim();
             if (!cStr) return;
-            if (!hrShiftsList.includes(cStr) && !customDict.some(d => String(d.excel).trim() === cStr)) {
+            if (!hrShiftsList.map(x => String(x).toUpperCase()).includes(cStr) && !customDict.some(d => String(d.excel).trim().toUpperCase() === cStr)) {
                 unknownCodes.add(cStr);
             }
         });
     }
     if (unknownCodes.size > 0) return { success: false, unknownCodes: Array.from(unknownCodes) };
 
-    const dataWithId  = Object.entries(excelMap).map(([id, v]) => ({ empId: id, ...v }));
+    const dataWithId  = Object.entries(excelMap).map(([id, v]) => ({ empId: id, noCheck: false, ...v }));
     const lastCycle   = (lastData?.cyclePeriods || []).at(-1) || null;
     const lastFF      = (lastData?.ffPeriods    || []).at(-1) || null;
     const cycleRanges = buildCheckRanges(lastCycle, targetMonth, 28, oldYymm, oldMonthDays);
@@ -215,9 +245,12 @@ async function handleExcelProcess(req) {
             monthDays: oldMonthDays, biStart, biEnd, cycleRanges, ffRanges, nhRequired,
             blankFillMode: req.blankFillMode || 'keep',
             blankFillCode: req.blankFillCode || '',
+            departedWarnings: check.departedWarnings || [],
         }, infoText);
     }
-    return { success: check.errors.length === 0, noOldDataWarnings: check.noOldDataWarnings };
+    // 建議修改（blocking:false，例如跨月四週WW/W+、雙週FF計數不符）不列入阻擋匯入的判斷
+    const blockingErrors = check.errors.filter(e => e.blocking !== false);
+    return { success: blockingErrors.length === 0, noOldDataWarnings: check.noOldDataWarnings, departedWarnings: check.departedWarnings || [] };
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -241,6 +274,76 @@ function getShiftTime(code, hrTimeMap) {
     return { startMin, endMin };
 }
 
+// ── 月初日期 + 星期計算（用於新調入/跨月推算 WW週六、FF週日數） ──────
+function ymmBaseDate(yymm) {
+    return mmddToDate(`${yymm.substring(4, 6)}/01`, yymm);
+}
+
+function countWeekdayInRange(startIdx, endIdx, oldYymm, dow) {
+    if (endIdx < startIdx || !oldYymm) return 0;
+    const base = ymmBaseDate(oldYymm);
+    let count = 0;
+    for (let gi = startIdx; gi <= endIdx; gi++) {
+        const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + gi);
+        if (d.getDay() === dow) count++;
+    }
+    return count;
+}
+
+// ── 四週WW/雙週FF數量檢查（含新調入推算、跨月未來推算） ───────────
+// dow: 6=週六(WW用)、0=週日(FF用)
+function checkPeriodRange({ r, combined, matchFn, required, errType, label, typeLabel,
+    hasOldData, oldMonthDays, validEnd, oldYymm, empId, err, dow, skipCrossMonthEstimate }) {
+
+    // 範圍整段都在「新調入前」→ 員工尚未調入，整段跳過不檢查
+    if (!hasOldData && r.endIdx < oldMonthDays) return;
+
+    // 新調入人員：範圍跨過「下月1號」(調入日) → 前段(調入前)用週六/週日推算，後段用Excel實際數
+    if (!hasOldData && r.startIdx < oldMonthDays && r.endIdx >= oldMonthDays) {
+        const estOld    = countWeekdayInRange(r.startIdx, oldMonthDays - 1, oldYymm, dow);
+        const actualNew = combined.slice(oldMonthDays, Math.min(r.endIdx, validEnd) + 1).filter(matchFn).length;
+        let estFuture = 0;
+        if (r.endIdx > validEnd) estFuture = countWeekdayInRange(validEnd + 1, r.endIdx, oldYymm, dow);
+        const count = estOld + actualNew + estFuture;
+        if (count !== required) {
+            const detail = estFuture > 0
+                ? `新調入人員：前段推算${estOld}天＋本月實際${actualNew}天＋後段推算${estFuture}天`
+                : `新調入人員：前段推算${estOld}天＋後段實際${actualNew}天`;
+            err.push({ empId, startIdx: r.startIdx, endIdx: r.endIdx, type: errType, estimated: true,
+                blocking: false, suggestion: true,
+                msg: `💡 建議修改：${label} ${r.start}～${r.end} ${typeLabel}=${count}（應${required}，${detail}，不強制鎖定）` });
+        }
+        return;
+    }
+
+    // 範圍整段都在目前資料範圍之後(尚無Excel資料可推算起點) → 跳過
+    if (r.startIdx > validEnd) return;
+
+    // 範圍跨過「下月最後一天」→ 後段(下下月)用週六/週日推算，前段用Excel實際數
+    // 四週WW/W+：完全不檢查（skipCrossMonthEstimate=true 時直接略過）
+    if (r.endIdx > validEnd) {
+        if (skipCrossMonthEstimate) return;
+        const knownStart  = hasOldData ? r.startIdx : Math.max(r.startIdx, oldMonthDays);
+        const actualKnown = combined.slice(knownStart, validEnd + 1).filter(matchFn).length;
+        const estFuture   = countWeekdayInRange(validEnd + 1, r.endIdx, oldYymm, dow);
+        const count = actualKnown + estFuture;
+        if (count !== required) {
+            err.push({ empId, startIdx: r.startIdx, endIdx: r.endIdx, type: errType, estimated: true,
+                blocking: false, suggestion: true,
+                msg: `💡 建議修改：${label} ${r.start}～${r.end} ${typeLabel}=${count}（應${required}，跨下下月推算值：本月實際${actualKnown}天＋下月推算${estFuture}天，不強制鎖定）` });
+        }
+        return;
+    }
+
+    // 一般情況：整段範圍都落在已知資料中（皆為實際值，非推算）→ 嚴格檢核，仍列入阻擋匯入
+    const startIdx = hasOldData ? r.startIdx : Math.max(r.startIdx, oldMonthDays);
+    const count = combined.slice(startIdx, r.endIdx + 1).filter(matchFn).length;
+    if (count !== required) {
+        err.push({ empId, startIdx: r.startIdx, endIdx: r.endIdx, type: errType,
+            msg: `${label} ${r.start}～${r.end} ${typeLabel}=${count}（應${required}）` });
+    }
+}
+
 function giToDateStr(gi, oldYymm, targetYymm, oldMonthDays) {
     if (!oldYymm) return `第${gi + 1}天`;
     let year, month, day;
@@ -256,23 +359,43 @@ function giToDateStr(gi, oldYymm, targetYymm, oldMonthDays) {
     return `${month}月${day}日`;
 }
 
+// ── 共用：比對「本月網頁資料」與「下月Excel資料」的人員名單差異 ──────
+// departedWarnings：本月網頁有、下月Excel無（可能離職/調離單位）
+// noOldDataWarnings：本月網頁無、下月Excel有（可能新調入/找不到舊資料）
+function computeMembershipWarnings(old, exc) {
+    const departedWarnings = [], noOldDataWarnings = [];
+    const excIdSet = new Set(Object.keys(exc || {}).map(formatEmpId));
+    (old?.data || []).forEach(p => {
+        const fid = formatEmpId(p.empId);
+        if (fid && !excIdSet.has(fid)) departedWarnings.push({ empId: p.empId, name: p.name || '' });
+    });
+    for (let id in (exc || {})) {
+        const hasOldData = !!old?.data?.find(p => formatEmpId(p.empId) === formatEmpId(id));
+        if (!hasOldData) noOldDataWarnings.push({ empId: id, name: exc[id].name || '' });
+    }
+    return { departedWarnings, noOldDataWarnings };
+}
+
 function runDetailedCheck(old, exc, dict, hrTimeMap, cycleRanges, ffRanges, oldMonthDays, newMonthDays, oldYymm, targetYymm, nhRequired = 0) {
-    if (!old?.data && !exc) return { errors: [], noOldDataWarnings: [] };
-    const err = [], noOldDataWarnings = [];
+    if (!old?.data && !exc) return { errors: [], noOldDataWarnings: [], departedWarnings: [] };
+    const err = [];
     const toDate = (gi) => giToDateStr(gi, oldYymm, targetYymm, oldMonthDays);
+
+    // 本月網頁有、下月Excel無 → 可能離職/調離單位；本月網頁無、下月Excel有 → 可能新調入
+    const { departedWarnings, noOldDataWarnings } = computeMembershipWarnings(old, exc);
 
     for (let id in exc) {
         const oStf       = old?.data?.find(p => formatEmpId(p.empId) === formatEmpId(id));
         const hasOldData = !!oStf;
         const validStart = hasOldData ? 0 : oldMonthDays;
         const validEnd   = oldMonthDays + newMonthDays - 1;
-
-        if (!hasOldData) noOldDataWarnings.push({ empId: id, name: exc[id].name || '' });
+        // 「不檢查」勾選：完全跳過四週WW/W+、雙週FF（含間隔）、NH/N+ 檢查
+        const noCheck    = !!exc[id]?.noCheck;
 
         const oldShifts      = hasOldData ? oStf.shifts : Array(oldMonthDays).fill('');
         const rawExcelShifts = exc[id].shifts;
         const combined = [...oldShifts, ...rawExcelShifts].map(s => {
-            const d = dict.find(x => String(x.excel).trim() === String(s).trim());
+            const d = dict.find(x => String(x.excel).trim().toUpperCase() === String(s).trim().toUpperCase());
             return d ? d.sys : s;
         });
 
@@ -286,46 +409,61 @@ function runDetailedCheck(old, exc, dict, hrTimeMap, cycleRanges, ffRanges, oldM
             }
         }
 
-        const isRangeValid = (r) => r.startIdx >= validStart && r.endIdx <= validEnd;
-
-        // FF 雙週檢查
-        ffRanges.forEach((r, i) => {
-            if (!isRangeValid(r)) return;
-            const count = combined.slice(r.startIdx, r.endIdx + 1).filter(s => s === 'FF').length;
-            if (count !== 2) err.push({ empId: id, startIdx: r.startIdx, endIdx: r.endIdx, type: `FF_${i + 1}`,
-                msg: `FF雙週《${i + 1}》${r.start}～${r.end} FF=${count}（應2）` });
+        // FF 雙週檢查（含新調入前段推算 + 跨下下月後段推算）／勾選「不檢查」則完全跳過
+        if (!noCheck) ffRanges.forEach((r, i) => {
+            checkPeriodRange({
+                r, combined,
+                matchFn: s => s === 'FF',
+                required: 2,
+                errType: `FF_${i + 1}`,
+                label: `FF雙週《${i + 1}》`,
+                typeLabel: 'FF',
+                hasOldData, oldMonthDays, validEnd, oldYymm,
+                empId: id, err, dow: 0
+            });
         });
 
-        // FF 間隔檢查 (不可超過 12 天)
-        const ffIndices = [];
-        for (let gi = validStart; gi <= validEnd; gi++) {
-            if (combined[gi] === 'FF') ffIndices.push(gi);
-        }
-        for (let fi = 0; fi < ffIndices.length - 1; fi++) {
-            const gap = ffIndices[fi + 1] - ffIndices[fi] - 1;
-            if (gap > 12) err.push({ empId: id, startIdx: ffIndices[fi], endIdx: ffIndices[fi + 1], type: 'FF_GAP',
-                msg: `FF間隔過長：${toDate(ffIndices[fi])}(FF) 與 ${toDate(ffIndices[fi + 1])}(FF) 之間間隔 ${gap} 天（最多12天）` });
+        // FF 間隔檢查 (不可超過 12 天，只在已知範圍內)／勾選「不檢查」則完全跳過
+        if (!noCheck) {
+            const ffCheckStart = hasOldData ? 0 : oldMonthDays;
+            const ffIndices = [];
+            for (let gi = ffCheckStart; gi <= validEnd; gi++) {
+                if (combined[gi] === 'FF') ffIndices.push(gi);
+            }
+            for (let fi = 0; fi < ffIndices.length - 1; fi++) {
+                const gap = ffIndices[fi + 1] - ffIndices[fi] - 1;
+                if (gap > 12) err.push({ empId: id, startIdx: ffIndices[fi], endIdx: ffIndices[fi + 1], type: 'FF_GAP',
+                    msg: `FF間隔過長：${toDate(ffIndices[fi])}(FF) 與 ${toDate(ffIndices[fi + 1])}(FF) 之間間隔 ${gap} 天（最多12天）` });
+            }
         }
 
-        // 四週變形檢查 (WW+W+ 應為 4 天)
-        cycleRanges.forEach((r, i) => {
-            if (!isRangeValid(r)) return;
-            const count = combined.slice(r.startIdx, r.endIdx + 1).filter(s => s === 'WW' || s === 'W+').length;
-            if (count !== 4) err.push({ empId: id, startIdx: r.startIdx, endIdx: r.endIdx, type: `WW_${i + 1}`,
-                msg: `四週變形【${i + 1}】${r.start}～${r.end} WW=${count}（應4）` });
+        // 四週變形檢查（含新調入前段推算；跨下下月後段完全不檢查）／勾選「不檢查」則完全跳過
+        if (!noCheck) cycleRanges.forEach((r, i) => {
+            checkPeriodRange({
+                r, combined,
+                matchFn: s => s === 'WW' || s === 'W+',
+                required: 4,
+                errType: `WW_${i + 1}`,
+                label: `四週變形【${i + 1}】`,
+                typeLabel: 'WW',
+                hasOldData, oldMonthDays, validEnd, oldYymm,
+                empId: id, err, dow: 6,
+                skipCrossMonthEstimate: true // 跨月（下下月）四週WW/W+不用檢查
+            });
         });
 
-        // NH / N+ 整月天數檢查
-        if (nhRequired > 0) {
+        // NH / N+ 整月天數檢查（新調入人員照算，NH範圍本就在下個月內）／勾選「不檢查」則完全跳過
+        if (!noCheck && nhRequired > 0) {
             const nhCount = combined.slice(oldMonthDays, oldMonthDays + newMonthDays)
                 .filter(s => s === 'NH' || s === 'N+').length;
-            if (nhCount !== nhRequired) err.push({ empId: id, startIdx: oldMonthDays, endIdx: oldMonthDays + newMonthDays - 1, type: 'NH_COUNT',
+            if (nhCount !== nhRequired) err.push({ empId: id, startIdx: oldMonthDays, endIdx: validEnd, type: 'NH_COUNT',
                 msg: `NH/N+ 天數不符：實際排 ${nhCount} 天（本月應排 ${nhRequired} 天）` });
         }
 
-        // 接班間隔檢查 (應達 11 小時)
+        // 接班間隔檢查 (應達 11 小時，從已知範圍起)
+        const restStart = hasOldData ? 0 : Math.max(0, oldMonthDays - 1);
         let prevCode = null, prevEndMin = null, prevGi = -1;
-        for (let gi = Math.max(0, validStart - 1); gi <= validEnd; gi++) {
+        for (let gi = restStart; gi <= validEnd; gi++) {
             const code = combined[gi] || '';
             if (!code) continue;
             const timeInfo = getShiftTime(code, hrTimeMap);
@@ -345,7 +483,7 @@ function runDetailedCheck(old, exc, dict, hrTimeMap, cycleRanges, ffRanges, oldM
             prevCode = code; prevEndMin = endMin; prevGi = gi;
         }
     }
-    return { errors: err, noOldDataWarnings };
+    return { errors: err, noOldDataWarnings, departedWarnings };
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -377,15 +515,17 @@ async function showModal(title, dataset, info) {
 
 // ── 錯誤顏色對應表（移出迴圈，僅定義一次） ────────────────────────
 const ERR_COLOR_MAP = {
-    WW:               { border: '#e74c3c', bg: '#fff2f2' },
-    FF:               { border: '#e74c3c', bg: '#fff2f2' },
+    WW:               { border: '#e74c3c', bg: '#fff2f2' }, // 嚴格檢核未過（範圍完全落於已匯入資料內）
+    FF:               { border: '#e74c3c', bg: '#fff2f2' }, // 嚴格檢核未過（範圍完全落於已匯入資料內）
+    SUGGEST:          { border: '#3498db', bg: '#eaf4fb' }, // 建議修改（推算值，不強制鎖定）
     GAP:              { border: '#e67e22', bg: '#fff8f0' },
     REST:             { border: '#8e44ad', bg: '#fdf2ff' },
     REPLACE_REQUIRED: { border: '#f39c12', bg: '#fef5e7' },
     NH:               { border: '#0f6e56', bg: '#e1f5ee' },
 };
 
-function getErrColor(type) {
+function getErrColor(type, estimated, blocking) {
+    if (blocking === false)          return ERR_COLOR_MAP.SUGGEST;
     if (!type)                       return ERR_COLOR_MAP.WW;
     if (type === 'REPLACE_REQUIRED') return ERR_COLOR_MAP.REPLACE_REQUIRED;
     if (type === 'FF_GAP')           return ERR_COLOR_MAP.GAP;
@@ -400,8 +540,12 @@ function renderModalContent(title) {
     const h        = dataset.headers;
     const mDays    = oldMonthDays;
     const total    = dataset.data.length;
-    const errorIds = new Set(dataset.errors?.map(e => formatEmpId(e.empId)));
-    const errCount = errorIds.size;
+    const blockingErrs  = dataset.errors?.filter(e => e.blocking !== false) || [];
+    const suggestErrs   = dataset.errors?.filter(e => e.blocking === false) || [];
+    const errorIds      = new Set(blockingErrs.map(e => formatEmpId(e.empId)));
+    const suggestIds    = new Set(suggestErrs.map(e => formatEmpId(e.empId)));
+    const errCount      = errorIds.size;
+    const suggestCount  = suggestIds.size;
 
     const CYCLE_COLORS = ['#dbeafe', '#bfdbfe', '#93c5fd'];
     const FF_COLORS    = ['#ede9fe', '#ddd6fe', '#c4b5fd'];
@@ -429,7 +573,8 @@ function renderModalContent(title) {
     ].join('');
 
     const errLegend = [
-        { color: '#e74c3c', bg: '#fff2f2', label: '四週變形/FF數量錯誤' },
+        { color: '#e74c3c', bg: '#fff2f2', label: '四週WW/W+、FF雙週數量錯誤（落於已匯入資料內，須修正）' },
+        { color: '#3498db', bg: '#eaf4fb', label: '💡 建議修改（不強制鎖定）：跨月推算值的雙週FF數量' },
         { color: '#e67e22', bg: '#fff8f0', label: 'FF間隔超過12天' },
         { color: '#8e44ad', bg: '#fdf2ff', label: '接班間距不足11小時' },
         { color: '#f39c12', bg: '#fef5e7', label: '建議更換 W+/N+' },
@@ -450,11 +595,13 @@ function renderModalContent(title) {
         .table-container { overflow-x:auto; border:1px solid #dfe6e9; border-radius:8px; }
         .report-table { width:100%; border-collapse:separate; border-spacing:0; background:white; }
         .report-table th, .report-table td { border:1px solid #ecf0f1; padding:8px; text-align:center; font-size:13px; min-width:32px; }
-        .sticky-col  { position:sticky; left:0;    background:#f8f9fa !important; z-index:5; font-weight:bold; border-right:2px solid #bdc3c7 !important; min-width:70px; }
-        .sticky-name { position:sticky; left:71px; background:#f8f9fa !important; z-index:5; font-weight:bold; border-right:2px solid #bdc3c7 !important; min-width:60px; }
+        .sticky-check{ position:sticky; left:0;     background:#f8f9fa !important; z-index:6; font-weight:bold; border-right:1px solid #dfe6e9 !important; min-width:44px; }
+        .sticky-col  { position:sticky; left:45px;  background:#f8f9fa !important; z-index:5; font-weight:bold; border-right:2px solid #bdc3c7 !important; min-width:70px; }
+        .sticky-name { position:sticky; left:116px; background:#f8f9fa !important; z-index:5; font-weight:bold; border-right:2px solid #bdc3c7 !important; min-width:60px; }
+        .no-check-cb { width:16px; height:16px; cursor:pointer; }
         .cell-err { background:#fff2f2 !important; border:2px solid #ff7675 !important; }
         .tooltip { position:relative; cursor:help; }
-        #kmuh-tip { position:fixed; background:#2d3436; color:white; padding:8px 14px; border-radius:6px; font-size:12px; z-index:99999; pointer-events:none; display:none; box-shadow:0 4px 12px rgba(0,0,0,0.4); }
+        #kmuh-tip { position:fixed; background:#2d3436; color:white; padding:8px 14px; border-radius:6px; font-size:12px; z-index:99999; pointer-events:none; display:none; box-shadow:0 4px 12px rgba(0,0,0,0.4); max-width:360px; }
         .editable-cell:focus { outline: 2px solid #3498db; background: #fff !important; }
         ${cycleCss} ${ffCss}
     `;
@@ -478,14 +625,19 @@ function renderModalContent(title) {
             const cellErrs   = pErrs.filter(e => gi >= e.startIdx && gi <= e.endIdx);
             let borderStyle  = '', bgStyle = '', tipText = '';
             if (cellErrs.length > 0) {
-                const bigErr  = cellErrs.reduce((a, b) => (b.endIdx - b.startIdx) > (a.endIdx - a.startIdx) ? b : a);
-                const { border, bg } = getErrColor(bigErr.type);
+                // 阻擋性錯誤優先於「建議修改」顯示；同等級再比範圍大小
+                const bigErr  = cellErrs.reduce((a, b) => {
+                    const aBlocking = a.blocking !== false, bBlocking = b.blocking !== false;
+                    if (aBlocking !== bBlocking) return aBlocking ? a : b;
+                    return (b.endIdx - b.startIdx) > (a.endIdx - a.startIdx) ? b : a;
+                });
+                const { border, bg } = getErrColor(bigErr.type, bigErr.estimated, bigErr.blocking);
                 const isFirst = gi === bigErr.startIdx, isLast = gi === bigErr.endIdx;
                 borderStyle = `border-top:2px solid ${border} !important; border-bottom:2px solid ${border} !important;`
                     + (isFirst ? `border-left:2px solid ${border} !important;`  : 'border-left:none !important;')
                     + (isLast  ? `border-right:2px solid ${border} !important;` : 'border-right:none !important;');
                 bgStyle  = `background:${bg} !important;`;
-                tipText  = pErrs.map(e => e.msg).join('\n');
+                tipText  = cellErrs.map(e => e.msg).join('\n');
             } else if (isBlank && isFill) {
                 tipText = `將填入 ${dataset.blankFillCode}`;
             }
@@ -495,7 +647,8 @@ function renderModalContent(title) {
             const cls     = (tipText ? 'tooltip ' : '') + 'editable-cell';
             return `<td class="${cls}" ${tipAttr} contenteditable="true" data-p-idx="${pIdx}" data-s-idx="${i}" style="${cellBg}${bgStyle}${borderStyle}">${displayVal}</td>`;
         }).join('');
-        return `<tr><td class="sticky-col">${p.empId || ''}</td><td class="sticky-name">${p.name || ''}</td>${cells}</tr>`;
+        const checkAttr = p.noCheck ? 'checked' : '';
+        return `<tr><td class="sticky-check"><input type="checkbox" class="no-check-cb" data-p-idx="${pIdx}" ${checkAttr} title="勾選後完全不檢查此人的四週WW/W+、雙週FF及NH/N+"></td><td class="sticky-col">${p.empId || ''}</td><td class="sticky-name">${p.name || ''}</td>${cells}</tr>`;
     }).join('');
 
     let m = document.getElementById('kmuh-modal');
@@ -510,18 +663,20 @@ function renderModalContent(title) {
             </div>
         </div>
         ${info ? `<div style="margin-bottom:8px; padding:8px 12px; background:#eaf4fb; border-radius:6px; font-size:13px; color:#2c3e50;">ℹ️ ${info}</div>` : ''}
-        <div style="margin-bottom:8px; padding:8px 12px; background:#fff3cd; border-radius:6px; font-size:13px; color:#856404; border:1px solid #ffeeba;">💡 提示：您可以直接點擊表格中的班別進行修改，系統會自動重新驗證。</div>
+        ${dataset.departedWarnings?.length ? `<div style="margin-bottom:8px; padding:10px 14px; background:#fdf0e0; border-radius:6px; font-size:13px; color:#7d4500; border:1px solid #f5c88a;"><b>⚠️ 本月有、下月班表無（可能離職或調離單位）：</b><span style="margin-left:8px;">${dataset.departedWarnings.map(w => `${w.empId}${w.name ? '（' + w.name + '）' : ''}`).join('、')}</span></div>` : ''}
+        <div style="margin-bottom:8px; padding:8px 12px; background:#fff3cd; border-radius:6px; font-size:13px; color:#856404; border:1px solid #ffeeba;">💡 提示：您可以直接點擊表格中的班別進行修改，系統會自動重新驗證。四週WW/W+、雙週FF數量檢查中，若區間完全落在本次已匯入的資料內（實際值），不符規範仍會鎖定匯入；若區間跨到下個月尚未匯入的範圍：雙週FF會用「六/日」推算並列為建議修改、不鎖定匯入，四週WW/W+則完全不檢查。勾選「不檢查」可完全跳過該員的四週WW/W+、雙週FF、NH/N+檢查。</div>
         ${legendItems ? `<div style="margin-bottom:6px; padding:6px 12px; background:#f8f9fa; border-radius:6px; font-size:12px; color:#555; display:flex; flex-wrap:wrap; gap:4px; align-items:center;"><b style="margin-right:6px;">檢查區間：</b>${legendItems}</div>` : ''}
         <div style="margin-bottom:12px; padding:6px 12px; background:#f8f9fa; border-radius:6px; font-size:12px; color:#555; display:flex; flex-wrap:wrap; gap:4px; align-items:center;"><b style="margin-right:6px;">錯誤類型：</b>${errLegend}</div>
         <div class="summary-row">
             <div class="card card-blue"><span>檢測總人數</span><div class="card-val">${total}</div></div>
             <div class="card card-green"><span>通過檢核</span><div class="card-val">${total - errCount}</div></div>
             <div class="card card-red"><span>違反規範</span><div class="card-val">${errCount}</div></div>
+            <div class="card" style="background:#3498db;"><span>建議修改（不鎖定）</span><div class="card-val">${suggestCount}</div></div>
         </div>
         <div class="table-container">
             <table class="report-table">
                 <thead>
-                    <tr style="background:#f1f2f6;"><th rowspan="2" class="sticky-col">職編</th><th rowspan="2" class="sticky-name">姓名</th>${thW}</tr>
+                    <tr style="background:#f1f2f6;"><th rowspan="2" class="sticky-check" title="勾選後完全不檢查此人的四週WW/W+、雙週FF及NH/N+">不檢查</th><th rowspan="2" class="sticky-col">職編</th><th rowspan="2" class="sticky-name">姓名</th>${thW}</tr>
                     <tr style="background:#f1f2f6;">${thD}</tr>
                 </thead>
                 <tbody>${rows}</tbody>
@@ -539,7 +694,7 @@ function setupModalEvents(m, title) {
         const td = e.target.closest('[data-kmuh-tip]');
         if (!td) return;
         tip.innerHTML = td.getAttribute('data-kmuh-tip').split('\n')
-            .map(l => `<div style="white-space:nowrap; line-height:1.8;">${l}</div>`).join('');
+            .map((l, idx, arr) => `<div style="white-space:normal; line-height:1.6;${idx > 0 ? 'margin-top:6px; padding-top:6px; border-top:1px solid rgba(255,255,255,0.25);' : ''}">${l}</div>`).join('');
         tip.style.display = 'block';
     };
     const moveTip = e => {
@@ -554,6 +709,14 @@ function setupModalEvents(m, title) {
     m.addEventListener('mousemove',  moveTip);
     m.addEventListener('mouseleave', hideTip);
     m.addEventListener('mouseout', e => { if (!e.target.closest('[data-kmuh-tip]')) hideTip(); });
+
+    m.querySelectorAll('.no-check-cb').forEach(cb => {
+        cb.addEventListener('change', e => {
+            const pIdx = parseInt(e.target.dataset.pIdx);
+            modalState.dataset.data[pIdx].noCheck = e.target.checked;
+            revalidateAndRefresh(title);
+        });
+    });
 
     m.querySelectorAll('.editable-cell').forEach(cell => {
         cell.addEventListener('blur', e => {
@@ -587,7 +750,7 @@ function setupModalEvents(m, title) {
 function revalidateAndRefresh(title) {
     const { dataset, storage, hrTimeMap, cycleRanges, ffRanges, oldMonthDays, newMonthDays, oldYymm, targetYymm, nhRequired } = modalState;
     const excelMap = {};
-    dataset.data.forEach(p => { excelMap[p.empId] = { name: p.name, shifts: p.shifts }; });
+    dataset.data.forEach(p => { excelMap[p.empId] = { name: p.name, shifts: p.shifts, noCheck: !!p.noCheck }; });
     const check = runDetailedCheck(storage.lastMonthData, excelMap, storage.shiftDict || [], hrTimeMap, cycleRanges, ffRanges, oldMonthDays, newMonthDays, oldYymm, targetYymm, nhRequired || 0);
     modalState.dataset.errors = check.errors;
     renderModalContent(title);
@@ -652,6 +815,18 @@ function parseCellDate(val) {
     return null;
 }
 
+// ── 日期行判定：需連續 8 欄皆為遞增連續數字（1,2,3...8）才視為日期行起點 ──
+// （原本只檢查相鄰 2 欄為 1、2，容易誤判班表資料中恰好出現「1、2」的班別代碼。
+//   與 popup.js 的 isDateRowStart 保持相同邏輯。）
+const DATE_RUN_LENGTH = 8;
+function isDateRowStart(row, ci) {
+    for (let k = 0; k < DATE_RUN_LENGTH; k++) {
+        const cd = parseCellDate(row[ci + k]);
+        if (!cd || cd.day !== k + 1) return false;
+    }
+    return true;
+}
+
 function detectExcelLayout(data, targetYymm) {
     const targetMonth = parseInt(targetYymm.substring(4, 6));
     const targetYear  = parseInt(targetYymm.substring(0, 4));
@@ -659,27 +834,28 @@ function detectExcelLayout(data, targetYymm) {
     let empIdColIdx = -1, nameColIdx = -1, day1ColIdx = -1;
     const EMP_KEYWORDS  = ["職編", "員工編號", "工號", "員編", "職員編號"];
     const NAME_KEYWORDS = ["姓名", "員工姓名", "名字"];
-    for (let ri = 0; ri < Math.min(10, data.length); ri++) {
+    // ── 水平掃描：只看前 20 欄（A~T），不限列數 ─────────────────────
+    const SCAN_COL_LIMIT = 20;
+    for (let ri = 0; ri < data.length; ri++) {
         const row = data[ri];
         if (!row) continue;
-        for (let ci = 0; ci < row.length; ci++) {
+        const colLimit = Math.min(SCAN_COL_LIMIT, row.length);
+        for (let ci = 0; ci < colLimit; ci++) {
             const val = String(row[ci] || "").trim();
             if (empIdColIdx === -1 && EMP_KEYWORDS.some(k => val.includes(k)))  empIdColIdx = ci;
             if (nameColIdx  === -1 && NAME_KEYWORDS.some(k => val.includes(k))) nameColIdx  = ci;
-            if (day1ColIdx  === -1) {
-                const cd = parseCellDate(row[ci]), cd2 = parseCellDate(row[ci + 1]);
-                if (cd?.day === 1 && cd2?.day === 2) day1ColIdx = ci;
-            }
+            if (day1ColIdx  === -1 && isDateRowStart(row, ci)) day1ColIdx = ci;
         }
         if (empIdColIdx !== -1 && nameColIdx !== -1 && day1ColIdx !== -1) break;
     }
     if (empIdColIdx === -1) {
         const colHits = {};
+        const fallbackLimit = Math.min(SCAN_COL_LIMIT, day1ColIdx !== -1 ? day1ColIdx : SCAN_COL_LIMIT);
         for (let ri = 0; ri < data.length; ri++) {
             const row = data[ri]; if (!row) continue;
-            for (let ci = 0; ci < (day1ColIdx !== -1 ? day1ColIdx : row.length); ci++) {
+            for (let ci = 0; ci < fallbackLimit; ci++) {
                 const val = String(row[ci] || "").trim();
-                if (/^\d{6,7}$/.test(val)) colHits[ci] = (colHits[ci] || 0) + 1;
+                if (isValidEmpId(val)) colHits[ci] = (colHits[ci] || 0) + 1;
             }
         }
         let bestCol = -1, bestHits = 1;
@@ -687,6 +863,33 @@ function detectExcelLayout(data, targetYymm) {
             if (hits > bestHits) { bestHits = hits; bestCol = parseInt(ci); }
         }
         if (bestCol !== -1) empIdColIdx = bestCol;
+    }
+    // 姓名欄關鍵字掃描不到時，改用內容特徵偵測：
+    // 若某欄「多數」儲存格內容皆為 2 個(含)以上的純中文字，視為姓名欄
+    // （掃描範圍限制在 1號日期欄之前的表頭資料區，避免誤判到班表班別欄）
+    if (nameColIdx === -1) {
+        const nameScanColLimit = day1ColIdx !== -1 ? day1ColIdx : SCAN_COL_LIMIT;
+        const chineseNameRe = /^[\u4e00-\u9fa5]{2,}/;  // 不再要求整格都是中文，只要求開頭是姓名
+        const colStats = {};
+        for (let ri = 0; ri < data.length; ri++) {
+            const row = data[ri]; if (!row) continue;
+            for (let ci = 0; ci < Math.min(nameScanColLimit, row.length); ci++) {
+                if (ci === empIdColIdx) continue;
+                const val = String(row[ci] || "").trim();
+                if (!val) continue;
+                if (!colStats[ci]) colStats[ci] = { hit: 0, total: 0 };
+                colStats[ci].total++;
+                if (chineseNameRe.test(val)) colStats[ci].hit++;
+            }
+        }
+        let bestCol = -1, bestHits = 0;
+        for (const [ci, s] of Object.entries(colStats)) {
+            if (s.hit >= 2 && s.hit / s.total >= 0.7 && s.hit > bestHits) {
+                bestHits = s.hit;
+                bestCol  = parseInt(ci);
+            }
+        }
+        if (bestCol !== -1) nameColIdx = bestCol;
     }
     if (nameColIdx === -1 && empIdColIdx !== -1) nameColIdx = empIdColIdx + 1;
     return { empIdColIdx, nameColIdx, day1ColIdx, monthDays, isFormatValid: empIdColIdx !== -1 && day1ColIdx !== -1 };
@@ -700,13 +903,13 @@ function parseExcel(data, targetYymm) {
     const m = {};
     data.forEach(r => {
         const rawId = String(r[layout.empIdColIdx] || "").trim();
-        if (!/^\d{6,7}$/.test(rawId)) return;
+        if (!isValidEmpId(rawId)) return;
         const empId  = formatEmpId(rawId);
         const name   = String(r[layout.nameColIdx] || "").trim();
         const shifts = [];
         for (let i = 0; i < layout.monthDays; i++) {
             let val = r[layout.day1ColIdx + i];
-            val = (val !== undefined && val !== null) ? String(val).replace(/[\r\n]/g, '').trim() : "";
+            val = (val !== undefined && val !== null) ? String(val).replace(/[\r\n]/g, '').trim().toUpperCase() : "";
             shifts.push(val);
         }
         m[empId] = { name, shifts };
@@ -747,7 +950,7 @@ async function executeInjectionFlowFromMap(excelMap) {
             if (!finalCode && !isFill) return;
             if (!finalCode && isFill)  finalCode = fillCode;
 
-            const dictEntry = customDict.find(x => String(x.excel).trim() === String(finalCode).trim());
+            const dictEntry = customDict.find(x => String(x.excel).trim().toUpperCase() === String(finalCode).trim().toUpperCase());
             let overCode = '', amCode = '', pmCode = '', nightCode = '';
             if (dictEntry && dictEntry.sys) {
                 finalCode = dictEntry.sys;
