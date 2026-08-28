@@ -71,6 +71,21 @@
         </div>
     </div>
 
+    <!-- 🔀 WW/W+ 分配策略（供「一鍵完成WW/FF配置」使用） -->
+    <div class="section">
+        <h3>🔀 WW/W+ 分配策略</h3>
+        <p class="dict-note">「一鍵完成WW/FF配置」功能會依此策略分配四週內的 WW/W+，請依單位習慣選擇。</p>
+        <div class="radio-item">
+            <input type="radio" name="wwMode" id="wwModeA" value="A" checked>
+            <label for="wwModeA">模式 A：剩餘空缺優先（放假符號用完才抓週六上班改 W+）</label>
+        </div>
+        <div class="radio-item">
+            <input type="radio" name="wwMode" id="wwModeB" value="B">
+            <label for="wwModeB">模式 B：週末出勤優先（週六有上班先給 W+，不足才用平常日）</label>
+        </div>
+        <div id="wwModeHint" style="font-size:12px;color:#e74c3c;margin-top:4px;"></div>
+    </div>
+
     <!-- ✅ 需求 6 修正：移除重複的班別管理 UI，統一交由 dict_manager 統籌 -->
     <div class="section">
         <h3>📖 班別字典管理</h3>

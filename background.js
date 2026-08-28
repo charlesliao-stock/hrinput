@@ -83,6 +83,11 @@ chrome.runtime.onInstalled.addListener(() => {
     }
   });
 
+  // 初始化 WW/W+ 分配策略：模式 A 為預設值
+  chrome.storage.local.get('wwMode', (data) => {
+    if (data.wwMode === undefined) chrome.storage.local.set({ wwMode: 'A' });
+  });
+
   // 初始化 HR 班別
   chrome.storage.local.get('hrShifts', (data) => {
     if (!data.hrShifts || data.hrShifts.length === 0) {
@@ -153,6 +158,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === "manualCheckUpdate") {
     checkForUpdates().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+
+  if (request.action === "openQuickSettings") {
+    chrome.windows.create({ url: 'quick_settings.html', type: 'popup', width: 700, height: 300 });
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (request.action === "openDictManager") {
+    chrome.windows.create({ url: 'dict_manager.html', type: 'popup', width: 780, height: 500 });
+    sendResponse({ ok: true });
     return true;
   }
 });

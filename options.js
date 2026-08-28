@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const data = await chrome.storage.local.get([
         STORAGE_KEYS.AUTO_MODE, STORAGE_KEYS.SHOW_WEB_PREVIEW, STORAGE_KEYS.SHOW_EXCEL_REPORT,
         STORAGE_KEYS.BLANK_FILL_MODE, STORAGE_KEYS.BLANK_FILL_CODE,
-        STORAGE_KEYS.HR_SHIFTS, STORAGE_KEYS.SHIFT_DICT,
+        STORAGE_KEYS.HR_SHIFTS, STORAGE_KEYS.SHIFT_DICT, STORAGE_KEYS.WW_MODE,
     ]);
 
     document.getElementById('autoMode').checked        = data[STORAGE_KEYS.AUTO_MODE]        || false;
@@ -53,18 +53,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     codeInput.addEventListener('input', validateCode);
     if (mode === 'fill') validateCode();
 
+    // ── WW/W+ 分配策略 ──────────────────────────────────────────
+    const savedWwMode = data[STORAGE_KEYS.WW_MODE];
+    const wwMode     = savedWwMode === 'B' ? 'B' : 'A';
+    const wwModeHint = document.getElementById('wwModeHint');
+    const checkedRadio = document.querySelector(`input[name="wwMode"][value="${wwMode}"]`);
+    if (checkedRadio) checkedRadio.checked = true;
+    document.querySelectorAll('input[name="wwMode"]').forEach(radio => {
+        radio.addEventListener('change', () => { wwModeHint.textContent = ''; });
+    });
+
     document.getElementById('openDictManager').onclick = () => {
         chrome.windows.create({ url: 'dict_manager.html', type: 'popup', width: 780, height: 500 });
     };
 
     document.getElementById('saveSettings').onclick = async () => {
-        const selectedMode = document.querySelector('input[name="blankFillMode"]:checked').value;
+        const selectedMode   = document.querySelector('input[name="blankFillMode"]:checked').value;
+        const selectedWwMode = document.querySelector('input[name="wwMode"]:checked')?.value || '';
         await chrome.storage.local.set({
             [STORAGE_KEYS.AUTO_MODE]:        document.getElementById('autoMode').checked,
             [STORAGE_KEYS.SHOW_WEB_PREVIEW]: document.getElementById('showWebPreview').checked,
             [STORAGE_KEYS.SHOW_EXCEL_REPORT]:document.getElementById('showExcelReport').checked,
             [STORAGE_KEYS.BLANK_FILL_MODE]:  selectedMode,
             [STORAGE_KEYS.BLANK_FILL_CODE]:  selectedMode === 'fill' ? codeInput.value.trim() : '',
+            [STORAGE_KEYS.WW_MODE]:          selectedWwMode,
         });
         alert("✅ 設定已儲存！");
     };

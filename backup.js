@@ -28,6 +28,7 @@
         STORAGE_KEYS.BLANK_FILL_CODE,
         STORAGE_KEYS.HR_SHIFTS,
         STORAGE_KEYS.SHIFT_DICT,
+        STORAGE_KEYS.WW_MODE,
     ];
     const BACKUP_FILE_TAG = 'kmuh-shift-helper-backup';
 

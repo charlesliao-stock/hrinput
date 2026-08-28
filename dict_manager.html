@@ -64,18 +64,77 @@
         th { background: #f8f9fa; position: sticky; top: 0; }
         th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
 
-        input[type="text"], input[type="time"] {
+        input[type="text"], input[type="time"], select.over-input {
             width: 90%;
             padding: 4px;
             border: 1px solid #ccc;
             border-radius: 3px;
             text-align: center;
             font-size: 12px;
+            box-sizing: border-box;
         }
         input[type="time"] { width: 85%; }
+        select.over-input { width: 95%; background: #fff; }
+        input.origin-input { width: 90%; }
+        input.origin-input:disabled { background: #f0f0f0; color: #aaa; cursor: not-allowed; }
+
+        /* 上、下班時間：維持原本單一時間欄外觀，展開時使用緊湊選擇面板 */
+        .time-picker-wrap {
+            position: relative;
+            display: inline-block;
+            width: 85%;
+            text-align: left;
+        }
+        .time-picker-wrap input.hr-start,
+        .time-picker-wrap input.hr-end {
+            width: 100%;
+            cursor: pointer;
+            background: #fff;
+        }
+        .time-picker-wrap::after {
+            content: '▾';
+            position: absolute;
+            right: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #555;
+            font-size: 12px;
+            pointer-events: none;
+        }
+        .time-picker-wrap.disabled::after {
+            color: #aaa;
+        }
+        .time-picker-panel {
+            display: none;
+            position: absolute;
+            left: 0;
+            top: calc(100% + 2px);
+            z-index: 1000;
+            align-items: center;
+            gap: 3px;
+            padding: 5px;
+            background: #fff;
+            border: 1px solid #aaa;
+            border-radius: 3px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, .2);
+            white-space: nowrap;
+        }
+        .time-picker-panel.open { display: flex; }
+        .time-picker-panel select {
+            width: 48px;
+            padding: 3px 2px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            background: #fff;
+            text-align: center;
+            font-size: 12px;
+        }
+        .time-picker-panel select.time-minute { width: 52px; }
+        .time-picker-panel span { color: #555; font-size: 12px; }
 
         /* 時間欄位：跳過狀態（休假/加班類） */
-        input[type="time"].skip-shift {
+        input[type="time"].skip-shift, select.over-input.skip-shift,
+        .time-picker-wrap.disabled input.hr-start, .time-picker-wrap.disabled input.hr-end {
             background: #f0f0f0;
             color: #aaa;
             cursor: not-allowed;
@@ -84,6 +143,18 @@
             color: #999;
             font-size: 11px;
             font-style: italic;
+        }
+
+        /* 放假符號：勾選後，該列其餘欄位全部停用並反灰 */
+        input.leave-disabled, select.leave-disabled {
+            background: #f0f0f0;
+            color: #aaa;
+            cursor: not-allowed;
+        }
+        input.leave-cb {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
         }
 
         .action-btns { margin-top: 10px; display: flex; gap: 10px; }
@@ -99,8 +170,8 @@
 
         .del-btn { background: #ff7675; color: white; border: none; padding: 3px 8px; cursor: pointer; border-radius: 3px; }
 
-        /* 自定義班別 sys 欄空白警示 */
-        input.sys-empty {
+        /* 自定義班別必填欄位與逾時代號錯誤警示 */
+        input.sys-empty, select.sys-empty {
             border-color: #e74c3c;
             background: #fff5f5;
         }
@@ -146,28 +217,33 @@
             <!-- HR 內建班別：含代號、上班時間、下班時間 -->
             <button type="button" class="collapsible">➕ HR 系統內建班別（含接班時間設定）</button>
             <div class="content">
-                <table id="hrTable">
-                    <thead>
-                        <tr>
-                            <th width="18%">系統代號</th>
-                            <th width="25%">上班時間</th>
-                            <th width="25%">下班時間</th>
-                            <th width="20%">備註</th>
-                            <th width="12%">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="hrBody"></tbody>
-                </table>
+<table id="hrTable">
+    <thead>
+        <tr>
+            <th width="10%">非上班</th>
+            <th width="18%">系統代號</th>
+            <th width="24%">上班時間</th>
+            <th width="24%">下班時間</th>
+            <th width="12%">備註</th>
+            <th width="12%">操作</th>
+        </tr>
+    </thead>
+    <tbody id="hrBody"></tbody>
+</table>
                 <div class="action-btns"><button class="add-row-btn" id="addHrRow">+ 新增內建項</button></div>
             </div>
 
             <!-- 自定義班別 -->
             <button type="button" class="collapsible">➕ 使用者自定義班別</button>
             <div class="content">
+                <div style="font-size:11px;color:#888;margin-bottom:6px;line-height:1.6">
+                    💡 勾選「放假」代表此 Excel 代號屬於「代表放假」的符號（例如 O、OFF），系統/逾時/上午/下午/夜間欄位可不填；「逾時」欄位為 HR 系統內建班別的系統代號下拉選單；W+／N+ 另外必須填寫「對應 Excel 代號」，指定這筆加班代號專屬的原始班別（例如白5+／N白5只對應白5）。
+                    「一鍵完成WW/FF配置」功能會以這些符號為候選格自動轉換為 FF、WW/W+、NH/N+，剩餘的一律轉為 SS。
+                </div>
                 <table id="customTable">
                     <thead>
                         <tr>
-                            <th>Excel</th><th>系統 *</th><th>逾時</th><th>上午</th><th>下午</th><th>夜間</th><th>操作</th>
+                            <th width="7%">放假</th><th width="13%">Excel</th><th width="11%">系統 *</th><th width="15%">逾時<br><small>HR 系統代號</small></th><th width="15%">對應<br>Excel 代號</th><th width="10%">上午</th><th width="10%">下午</th><th width="10%">夜間</th><th width="9%">操作</th>
                         </tr>
                     </thead>
                     <tbody id="customBody"></tbody>

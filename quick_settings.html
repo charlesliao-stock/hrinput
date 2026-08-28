@@ -5,14 +5,24 @@
     <title>選項設定</title>
     <style>
         html, body {
-            width: 320px;
+            width: 660px;
             margin: 0;
             padding: 0;
             background-color: #f4f7f6;
             font-family: "Microsoft JhengHei", sans-serif;
             overflow: hidden;
         }
-        .wrapper { padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+        .wrapper {
+            padding: 15px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            align-items: start;
+        }
+        .wrapper > h3,
+        .wrapper > .save-btn {
+            grid-column: 1 / -1;
+        }
 
         h3 { margin: 0 0 10px 0; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 6px; font-size: 15px; }
 
@@ -103,23 +113,26 @@
             </div>
         </div>
 
-        <!-- 💾 資料備份與還原 -->
+        <!-- 🔀 WW/W+ 分配策略（供「一鍵完成WW/FF配置」使用） -->
         <div class="section">
-            <div class="section-title">💾 資料備份與還原</div>
+            <div class="section-title">🔀 WW/W+ 分配策略</div>
             <div style="font-size:11px;color:#888;margin-bottom:8px;line-height:1.6">
-                設定與班表字典僅儲存在本機。若擴充功能重新安裝、更換檔案儲存位置或更換電腦，
-                可事先匯出備份檔，日後再匯入還原。
+                「一鍵完成WW/FF配置」功能會依此策略分配四週內的 WW/W+，請依單位習慣選擇。
             </div>
-            <button type="button" class="save-btn" id="exportBackupBtn" style="background:#2980b9">📤 匯出備份檔</button>
-            <input type="file" id="importBackupFile" accept="application/json" style="display:none">
-            <button type="button" class="save-btn" id="importBackupBtn" style="background:#8e44ad;margin-top:8px">📥 匯入備份檔</button>
-            <div id="backupStatus" style="font-size:11px;margin-top:6px;min-height:14px"></div>
+            <div class="radio-item">
+                <input type="radio" name="wwMode" id="wwModeA" value="A" checked>
+                <label for="wwModeA">模式 A：剩餘空缺優先（放假符號用完才抓週六上班改 W+）</label>
+            </div>
+            <div class="radio-item">
+                <input type="radio" name="wwMode" id="wwModeB" value="B">
+                <label for="wwModeB">模式 B：週末出勤優先（週六有上班先給 W+，不足才用平常日）</label>
+            </div>
+            <div id="wwModeHint" style="font-size:11px;color:#e74c3c;margin-top:4px;"></div>
         </div>
 
         <button class="save-btn" id="saveBtn">💾 儲存並關閉</button>
     </div>
     <script src="shared.js"></script>
     <script src="quick_settings.js"></script>
-    <script src="backup.js"></script>
 </body>
 </html>

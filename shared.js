@@ -13,10 +13,12 @@ const STORAGE_KEYS = {
     LAST_MONTH_DATA:  'lastMonthData',
     PENDING_NEXT_URL: 'pendingNextUrl',
     PENDING_UNKNOWN:  'pendingUnknownCodes',
+    PENDING_OVERTIME_GAPS: 'pendingOvertimeGaps', // 一鍵配置找不到加班代號對應時，暫存缺漏組合供字典管理頁自動建列
     UPDATE_AVAILABLE: 'updateAvailable',
     LATEST_VERSION:   'latestVersion',
     DOWNLOAD_URL:     'downloadUrl',
     CHANGELOG:        'changelog',
+    WW_MODE:          'wwMode', // 'A'（剩餘空缺優先）｜'B'（週末出勤優先）｜undefined（尚未設定）
 };
 
 // ── 取得所有有效的「系統班別代號」集合 ──────────────────────────────────

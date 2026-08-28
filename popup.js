@@ -5,8 +5,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
     const statusDiv = document.getElementById('status'), excelFile = document.getElementById('excelFile');
+    const googleSheetsUrl = document.getElementById('googleSheetsUrl');
+    const googleSheetsReadBtn = document.getElementById('googleSheetsReadBtn');
     let currentWorkbook = null;
     let lastSelectedSheet = null;
+    let lastNhDates = []; // 匯入前確認視窗中選定的國定假日日期（下個月「幾號」的整數陣列），供重新檢測時沿用
 
     // 本月班表記憶保存期限：30 分鐘。超過此時間視為過期，避免瀏覽器/分頁重開後
     // 使用者誤以為「已記憶」的仍是最新資料，實際上網頁班表可能早已被他人異動過。
@@ -76,8 +79,61 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     };
 
-    document.getElementById('openQuickSettings').onclick = () => chrome.windows.create({ url: 'quick_settings.html', type: 'popup', width: 360, height: 400 });
+    document.getElementById('openQuickSettings').onclick = () => chrome.windows.create({ url: 'quick_settings.html', type: 'popup', width: 700, height: 300 });
     document.getElementById('openDictManager').onclick   = () => chrome.windows.create({ url: 'dict_manager.html',   type: 'popup', width: 780, height: 500 });
+
+    // Excel 匯入結果已交由網頁端顯示後，關閉目前的擴充功能 popup，
+    // 避免右上角選單遮住檢測報告與下一步操作；若瀏覽器不允許 script 關閉，
+    // 以簡短提示取代整個選單內容作為 fallback。
+    function hidePopupMenuAfterImport(message = 'Excel 已匯入，請查看頁面上的檢測報告。') {
+        setTimeout(() => {
+            try { window.close(); } catch (err) { /* 某些瀏覽器不允許關閉 popup */ }
+            if (!window.closed) {
+                document.body.replaceChildren();
+                document.body.className = 'import-complete';
+                const notice = document.createElement('div');
+                notice.className = 'import-complete-note';
+                notice.textContent = message;
+                document.body.appendChild(notice);
+            }
+        }, 80);
+    }
+
+    // 只有需要選取國定假日時才放大整個 popup，讓左側訊息與右側日期區都有足夠操作空間。
+    // 未進入國定假日流程時維持原本寬度與高度。
+    function getNhPopupHeight(targetYymm) {
+        const year = parseInt(String(targetYymm || '').slice(0, 4), 10);
+        const month = parseInt(String(targetYymm || '').slice(4, 6), 10);
+        if (!year || !month) return 760;
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const firstDow = new Date(year, month - 1, 1).getDay();
+        const calendarRows = Math.ceil((firstDow + daysInMonth) / 7);
+        // 5／6 列月份均在約 600px 的固定 popup 高度內完整呈現；
+        // 不再設定 720px 以上高度，避免 Chrome popup 外層出現垂直拉 bar。
+        return Math.max(600, Math.min(640, 348 + calendarRows * 42));
+    }
+
+    function setPopupNhExpanded(expanded, targetYymm = '') {
+        const root = document.documentElement;
+        if (expanded) {
+            root.style.setProperty('--popup-nh-height', `${getNhPopupHeight(targetYymm)}px`);
+        } else {
+            root.style.removeProperty('--popup-nh-height');
+        }
+        root.classList.toggle('popup-nh-expanded', expanded);
+        if (document.body) document.body.classList.toggle('popup-nh-expanded', expanded);
+    }
+
+    // 匯入前確認視窗的尺寸由模式明確控制，不再由目前 popup viewport 自動壓縮。
+    function setPreImportWindowMode(mode, targetYymm = '') {
+        const root = document.documentElement;
+        const compact = mode === 'compact';
+        const expanded = mode === 'nh';
+        root.classList.toggle('popup-preimport-compact', compact);
+        if (document.body) document.body.classList.toggle('popup-preimport-compact', compact);
+        setPopupNhExpanded(expanded, targetYymm);
+
+    }
 
     function showAlertWindow(message) {
         const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
@@ -211,58 +267,104 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
-    // --- 步驟 2：選擇 Excel 檔案 ---
-    document.getElementById('step2Btn').onclick = async () => {
+    // --- 步驟 2：選擇 Excel 或讀取 Google Sheets ---
+    async function ensureFreshMonthMemory() {
         const d = await chrome.storage.local.get('lastMonthData');
         const status = getMemoryStatus(d.lastMonthData);
-        if (status !== 'fresh') {
-            updateStep1BtnLabel(null, status === 'expired');
-            statusDiv.textContent = status === 'expired'
-                ? "⚠️ 本月班表記憶已逾時（超過30分鐘），請重新執行步驟1"
-                : "❌ 尚未記憶本月班表，請先執行步驟1";
+        if (status === 'fresh') return true;
+        updateStep1BtnLabel(null, status === 'expired');
+        statusDiv.textContent = status === 'expired'
+            ? "⚠️ 本月班表記憶已逾時（超過30分鐘），請重新執行步驟1"
+            : "❌ 尚未記憶本月班表，請先執行步驟1";
+        return false;
+    }
+
+    async function prepareWorkbook(workbook, sourceLabel) {
+        currentWorkbook = workbook;
+        lastSelectedSheet = null;
+        document.getElementById('sheetSelectBox').style.display = 'none';
+        const sheetNames = currentWorkbook.SheetNames || [];
+        if (sheetNames.length === 0) {
+            statusDiv.textContent = `❌ ${sourceLabel}中沒有任何工作表`;
             return;
         }
+        if (sheetNames.length === 1) {
+            statusDiv.textContent = `偵測到唯一工作表「${sheetNames[0]}」，自動匯入中...`;
+            lastSelectedSheet = sheetNames[0];
+            await processExcelSheet(sheetNames[0]);
+            return;
+        }
+        const sel = document.getElementById('sheetSelect');
+        sel.innerHTML = sheetNames.map((name, i) =>
+            `<option value="${String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')}">${i + 1}. ${String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</option>`
+        ).join('');
+        document.getElementById('sheetSelectBox').style.display = 'block';
+        statusDiv.textContent = `📋 ${sourceLabel}偵測到 ${sheetNames.length} 個工作表，請選擇後按確認`;
+    }
+
+    document.getElementById('step2Btn').onclick = async () => {
+        if (!(await ensureFreshMonthMemory())) return;
         excelFile.click();
     };
 
     excelFile.addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
-
         statusDiv.textContent = "⏳ 讀取 Excel 檔案中...";
         const reader = new FileReader();
-
         reader.onload = async (ev) => {
             try {
-                currentWorkbook = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
-                const sheetNames = currentWorkbook.SheetNames;
-                document.getElementById('sheetSelectBox').style.display = 'none';
-
-                if (sheetNames.length === 0) {
-                    statusDiv.textContent = "❌ Excel 檔案中沒有任何工作表";
-                    return;
-                }
-
-                if (sheetNames.length === 1) {
-                    statusDiv.textContent = `偵測到唯一工作表「${sheetNames[0]}」，自動匯入中...`;
-                    lastSelectedSheet = sheetNames[0];
-                    await processExcelSheet(sheetNames[0]);
-                } else {
-                    const sel = document.getElementById('sheetSelect');
-                    sel.innerHTML = sheetNames.map((name, i) =>
-                        `<option value="${name}">${i + 1}. ${name}</option>`
-                    ).join('');
-                    document.getElementById('sheetSelectBox').style.display = 'block';
-                    statusDiv.textContent = `📋 偵測到 ${sheetNames.length} 個工作表，請選擇後按確認`;
-                }
+                await prepareWorkbook(XLSX.read(new Uint8Array(ev.target.result), { type: 'array' }), 'Excel ');
             } catch (err) {
                 console.error('[Excel 讀取錯誤]', err);
                 statusDiv.textContent = "❌ Excel 讀取失敗：" + err.message;
             }
         };
-
         reader.readAsArrayBuffer(file);
         e.target.value = "";
+    });
+
+    function parseGoogleSheetsUrl(rawValue) {
+        const raw = String(rawValue || '').trim();
+        if (!raw) throw new Error('請先貼上 Google Sheets 網址');
+        let url;
+        try { url = new URL(raw); } catch (err) { throw new Error('網址格式不正確，請貼上完整的 Google Sheets 網址'); }
+        const host = url.hostname.toLowerCase();
+        if (!['docs.google.com', 'spreadsheets.google.com'].includes(host)) {
+            throw new Error('網址不是 Google Sheets 網址，請確認是 docs.google.com/spreadsheets/...');
+        }
+        const match = url.pathname.match(/\/spreadsheets\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)/);
+        if (!match) throw new Error('無法從網址辨識試算表 ID，請貼上試算表的分享網址');
+        // 刻意忽略網址上的 gid：匯入時必須下載整本試算表，才能讓使用者選擇所有 Sheet。
+        return { id: match[1] };
+    }
+
+    async function readGoogleSheetsWorkbook() {
+        if (!(await ensureFreshMonthMemory())) return;
+        const { id } = parseGoogleSheetsUrl(googleSheetsUrl?.value);
+        // 不帶 gid，否則 Google 可能只回傳網址目前所在的單一工作表。
+        const exportUrl = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(id)}/export?format=xlsx`;
+        googleSheetsReadBtn.disabled = true;
+        statusDiv.textContent = '⏳ 正在讀取 Google Sheets 整本試算表，請稍候...';
+        try {
+            // 公開／已開放連結存取的試算表應匿名讀取；帶 Cookie 會讓 Google 匯出端點的跨來源請求觸發 Failed to fetch。
+            const response = await fetch(exportUrl, { redirect: 'follow', credentials: 'omit', cache: 'no-store' });
+            if (!response.ok) throw new Error(`伺服器回應 ${response.status}`);
+            const buffer = await response.arrayBuffer();
+            if (buffer.byteLength < 100) throw new Error('回傳內容不是有效的試算表檔案');
+            const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+            await prepareWorkbook(workbook, 'Google Sheets ');
+        } catch (err) {
+            console.error('[Google Sheets 讀取錯誤]', err);
+            statusDiv.textContent = `❌ Google Sheets 讀取失敗：${err.message}。請確認試算表已開放連結存取（可檢視或可編輯），且網址正確。`;
+        } finally {
+            googleSheetsReadBtn.disabled = false;
+        }
+    }
+
+    googleSheetsReadBtn?.addEventListener('click', readGoogleSheetsWorkbook);
+    googleSheetsUrl?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') readGoogleSheetsWorkbook();
     });
 
     document.getElementById('sheetConfirmBtn').onclick = async () => {
@@ -327,10 +429,57 @@ document.addEventListener('DOMContentLoaded', async () => {
     //   - 'continue'：可直接送往 content.js 處理（無天數不足問題）
     //   - 'fill'    ：使用者選擇由系統補足缺少的天數後再送往 content.js 處理
     //   - 'cancel'  ：使用者取消，或日期行重複強制中止
+    // ── 國定假日日曆 HTML 產生（下個月，全員統一日期） ─────────────────
+    function buildNhCalendarHtml(targetYymm, nhRequired) {
+        const year  = parseInt(targetYymm.slice(0, 4), 10);
+        const month = parseInt(targetYymm.slice(4, 6), 10);
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const firstDow    = new Date(year, month - 1, 1).getDay(); // 0=日
+        const weekdayLabels = ['日', '一', '二', '三', '四', '五', '六'];
+
+        const headerCells = weekdayLabels.map(w =>
+            `<div style="text-align:center;font-size:11px;color:#888;font-weight:bold;">${w}</div>`).join('');
+
+        let cells = '';
+        for (let i = 0; i < firstDow; i++) cells += `<div></div>`;
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dow = (firstDow + d - 1) % 7;
+            const isWeekend = dow === 0 || dow === 6;
+            cells += `
+                <div class="_nhDayCell" data-day="${d}" data-weekend="${isWeekend}" style="
+                    padding:6px 0; text-align:center; border-radius:5px; cursor:pointer;
+                    font-size:12px; border:1px solid #ddd; user-select:none; background:#fff;
+                    color:${isWeekend ? '#e74c3c' : '#2c3e50'};
+                ">${d}</div>`;
+        }
+
+        return `
+            <div class="_nhPanel" style="background:#fff8f0;border:1px solid #f0c060;border-radius:6px;
+                        padding:10px 12px;margin-bottom:10px;font-size:12px;color:#7d4500;">
+                <div style="font-weight:bold;margin-bottom:6px;">
+                    📅 國定假日日期指定（${year}年${month}月，本月應排 <span style="color:#c0392b">${nhRequired}</span> 天）
+                </div>
+                <div style="font-size:11px;color:#888;margin-bottom:8px;line-height:1.6">
+                    請勾選對應數量的確切日期，全體人員將統一套用：當天若為上班班別將加註 <b>N+</b>，
+                    當天若為「代表放假」符號將轉為 <b>NH</b>。數量須與應排天數完全相符才能繼續匯入。
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px;">
+                    ${headerCells}${cells}
+                </div>
+                <div id="_nhCountHint" style="font-size:12px;font-weight:bold;color:#c0392b;">已選 0／${nhRequired} 天</div>
+            </div>`;
+    }
+
     function showConsolidatedPreImportWindow(sheetName, report) {
         return new Promise((resolve) => {
-            const { layout, empCount, structuralIssues, multiDateWarning, daysWarning, departedWarnings, noOldDataWarnings } = report;
+            const { layout, empCount, structuralIssues, multiDateWarning, daysWarning, departedWarnings, noOldDataWarnings, nhRequired, targetYymm } = report;
             const blocking = !!multiDateWarning || (structuralIssues && structuralIssues.length > 0); // 項目2、欄位偵測失敗：強制中止
+            const needsNh  = !blocking && nhRequired > 0 && !!targetYymm;
+            const selectedNhDays = new Set();
+
+            // 兩種確認狀態都使用明確固定尺寸：無國假為可閱讀的小視窗；
+            // 有國假則展開成完整雙欄日曆視窗。
+            setPreImportWindowMode(needsNh ? 'nh' : 'compact', targetYymm);
 
             const empLetter  = layout.empIdColIdx !== -1 ? colIdxToLetter(layout.empIdColIdx) : "未偵測到";
             const nameLetter = layout.nameColIdx  !== -1 ? colIdxToLetter(layout.nameColIdx)  : "未偵測到";
@@ -339,27 +488,34 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const overlay = document.createElement('div');
             overlay.style.cssText = [
-                'position:fixed', 'inset:0', 'background:rgba(0,0,0,0.45)',
+                // 確認視窗本身採文件流中的固定尺寸，避免 position:fixed 只取得
+                // 原始 popup viewport，導致無國假內容被擠成窄直欄或日曆被裁切。
+                'position:absolute', 'top:0', 'left:0',
+                needsNh ? 'width:800px' : 'width:520px',
+                needsNh ? 'height:var(--popup-nh-height,760px)' : 'height:500px',
+                'background:rgba(0,0,0,0.45)',
                 'display:flex', 'align-items:center', 'justify-content:center',
                 'z-index:9999', 'padding:10px', 'box-sizing:border-box',
             ].join(';');
 
             // ── box 改為「上：標題（固定）／中：警示訊息（可捲動）／下：按鈕（固定）」──
-            // max-height 改用 100%（相對於 overlay 的實際可視高度），
-            // 不論擴充功能彈出視窗實際多小，box 都不會超出可視範圍，
-            // 按鈕永遠釘在底部，保證看得到、按得到。
+            // 國定假日流程使用 760～900px 的固定可視高度；一般流程仍依 viewport
+            // 彈性縮放。這樣日曆欄不會因原 popup viewport 太窄而被壓縮。
             const box = document.createElement('div');
             box.style.cssText = [
                 'background:#fff', 'border-radius:8px',
-                'width:100%', 'max-width:100%',
-                'max-height:100%',
+                needsNh ? 'width:780px' : 'width:500px',
+                needsNh ? 'min-width:640px' : 'min-width:480px',
+                needsNh ? 'max-width:780px' : 'max-width:500px',
+                needsNh ? 'max-height:calc(var(--popup-nh-height, 760px) - 20px)' : 'max-height:480px',
                 'display:flex', 'flex-direction:column',
                 'box-shadow:0 4px 20px rgba(0,0,0,0.25)',
                 'font-family:"Microsoft JhengHei",sans-serif',
                 'overflow:hidden',
-            ].join(';');
+            ].filter(Boolean).join(';');
 
             let sections = '';
+            let nhSectionHtml = '';
 
             // ── 1. 欄位偵測結果（恆顯示） ──────────────────────────
             sections += `
@@ -435,6 +591,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 </div>`;
             }
 
+            // ── 6. 國定假日日期指定日曆（下個月，全員統一日期） ──────────────
+            // 日期選擇區獨立放到右側，避免與左側警示訊息一起堆疊成過長頁面。
+            if (needsNh) {
+                nhSectionHtml = buildNhCalendarHtml(targetYymm, nhRequired);
+            }
+
             let buttonsHtml = '';
             if (blocking) {
                 buttonsHtml = `
@@ -451,9 +613,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <div style="font-size:11px;color:#888;margin-bottom:10px;line-height:1.7">
                     請確認以上偵測結果與提醒事項；若確認無誤可補足天數後繼續。
                 </div>
-                <button id="_preImportBtnFill" style="width:100%;padding:9px;margin-bottom:7px;
+                <button id="_preImportBtnFill" ${needsNh ? 'disabled' : ''} style="width:100%;padding:9px;margin-bottom:7px;
                     background:#27ae60;color:#fff;border:none;border-radius:6px;
-                    font-size:12px;font-weight:bold;cursor:pointer">
+                    font-size:12px;font-weight:bold;cursor:pointer;${needsNh ? 'opacity:.5;cursor:not-allowed;' : ''}">
                     📅 系統補足天數欄位（班表資料空白）後繼續
                 </button>
                 <button id="_preImportBtnCancel" style="width:100%;padding:9px;
@@ -466,9 +628,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <div style="font-size:11px;color:#888;margin-bottom:10px;line-height:1.7">
                     請確認以上偵測結果與提醒事項是否符合預期。
                 </div>
-                <button id="_preImportBtnContinue" style="width:100%;padding:9px;margin-bottom:7px;
+                <button id="_preImportBtnContinue" ${needsNh ? 'disabled' : ''} style="width:100%;padding:9px;margin-bottom:7px;
                     background:#27ae60;color:#fff;border:none;border-radius:6px;
-                    font-size:12px;font-weight:bold;cursor:pointer">
+                    font-size:12px;font-weight:bold;cursor:pointer;${needsNh ? 'opacity:.5;cursor:not-allowed;' : ''}">
                     ✅ 確認無誤，繼續匯入
                 </button>
                 <button id="_preImportBtnCancel" style="width:100%;padding:9px;
@@ -479,14 +641,59 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             box.innerHTML = `
+                <style>
+                    .preimport-content {
+                        display:grid;
+                        grid-template-columns:minmax(0,1fr) minmax(250px,320px);
+                        gap:12px;
+                        padding:0 18px;
+                        overflow:hidden;
+                        flex:1 1 auto;
+                        min-height:0;
+                        align-items:start;
+                    }
+                    .preimport-main { min-width:0; }
+                    .preimport-nh {
+                        min-width:0;
+                        position:sticky;
+                        top:0;
+                        align-self:start;
+                    }
+                    .preimport-nh ._nhPanel { margin-bottom:0 !important; }
+                    @media (max-width:620px) {
+                        .preimport-content {
+                            grid-template-columns:minmax(0,1fr) minmax(215px,42%);
+                            gap:8px;
+                            padding:0 10px;
+                        }
+                        .preimport-content ._nhPanel { padding:8px; }
+                        .preimport-content ._nhPanel > div:first-child { font-size:11px !important; }
+                        .preimport-content ._nhPanel > div:nth-child(2) { font-size:10px !important; }
+                        .preimport-content ._nhDayCell { padding:5px 0 !important; font-size:11px !important; }
+                    }
+                    @media (max-width:420px) {
+                        .preimport-content {
+                            grid-template-columns:minmax(0,1fr) minmax(190px,58%);
+                            gap:6px;
+                            padding:0 8px;
+                        }
+                        .preimport-nh { position:sticky; top:0; }
+                        .preimport-content ._nhDayCell { padding:4px 0 !important; font-size:10px !important; }
+                    }
+                    /* 無國定假日時只有左側訊息，必須恢復單欄，避免內容只佔一半寬度。 */
+                    .preimport-content-compact {
+                        grid-template-columns:minmax(0,1fr) !important;
+                    }
+                </style>
                 <div style="padding:16px 18px 0;flex:0 0 auto;">
                     <div style="font-size:15px;font-weight:bold;color:${blocking ? '#c0392b' : '#2c3e50'};margin-bottom:4px">
                         ${blocking ? '⛔ 匯入前檢查未通過' : '📋 匯入前確認'}
                     </div>
                     <div style="font-size:11px;color:#999;margin-bottom:10px">工作表：${sheetName}</div>
                 </div>
-                <div style="padding:0 18px;overflow-y:auto;flex:1 1 auto;min-height:0;">
-                    ${sections}
+                <div class="preimport-content${needsNh ? '' : ' preimport-content-compact'}">
+                    <div class="preimport-main">${sections}</div>
+                    ${nhSectionHtml ? `<div class="preimport-nh">${nhSectionHtml}</div>` : ''}
                 </div>
                 <div style="padding:10px 18px 14px;flex:0 0 auto;border-top:1px solid #eee;margin-top:4px;">
                     ${buttonsHtml}
@@ -495,19 +702,58 @@ document.addEventListener('DOMContentLoaded', async () => {
             overlay.appendChild(box);
             document.body.appendChild(overlay);
 
-            function cleanup(choice) {
+            function cleanup(action) {
                 document.body.removeChild(overlay);
-                resolve(choice);
+                setPreImportWindowMode('none');
+                resolve({ action, nhDates: Array.from(selectedNhDays).sort((a, b) => a - b) });
+            }
+
+            // ── 國定假日日曆：勾選/取消 + 數量檢核，數量須「完全等於」nhRequired 才放行 ──
+            if (needsNh) {
+                const countHint = box.querySelector('#_nhCountHint');
+                const fillBtnEl     = box.querySelector('#_preImportBtnFill');
+                const continueBtnEl = box.querySelector('#_preImportBtnContinue');
+                const updateNhUi = () => {
+                    const ok = selectedNhDays.size === nhRequired;
+                    countHint.textContent = `已選 ${selectedNhDays.size}／${nhRequired} 天`;
+                    countHint.style.color = ok ? '#27ae60' : '#c0392b';
+                    [fillBtnEl, continueBtnEl].forEach(btn => {
+                        if (!btn) return;
+                        btn.disabled = !ok;
+                        btn.style.opacity      = ok ? '1' : '.5';
+                        btn.style.cursor       = ok ? 'pointer' : 'not-allowed';
+                    });
+                };
+                box.querySelectorAll('._nhDayCell').forEach(cell => {
+                    cell.onclick = () => {
+                        const day = parseInt(cell.dataset.day, 10);
+                        if (selectedNhDays.has(day)) {
+                            selectedNhDays.delete(day);
+                            cell.style.background = '#fff';
+                            cell.style.borderColor = '#ddd';
+                            cell.style.fontWeight = 'normal';
+                            cell.style.color = cell.dataset.weekend === 'true' ? '#e74c3c' : '#2c3e50';
+                        } else {
+                            if (selectedNhDays.size >= nhRequired) return; // 已達應選天數，不可再多選
+                            selectedNhDays.add(day);
+                            cell.style.background = '#27ae60';
+                            cell.style.borderColor = '#219150';
+                            cell.style.color = '#fff';
+                            cell.style.fontWeight = 'bold';
+                        }
+                        updateNhUi();
+                    };
+                });
             }
 
             const ackBtn = box.querySelector('#_preImportBtnAck');
             if (ackBtn) ackBtn.onclick = () => cleanup('cancel');
 
             const fillBtn = box.querySelector('#_preImportBtnFill');
-            if (fillBtn) fillBtn.onclick = () => cleanup('fill');
+            if (fillBtn) fillBtn.onclick = () => { if (!fillBtn.disabled) cleanup('fill'); };
 
             const continueBtn = box.querySelector('#_preImportBtnContinue');
-            if (continueBtn) continueBtn.onclick = () => cleanup('continue');
+            if (continueBtn) continueBtn.onclick = () => { if (!continueBtn.disabled) cleanup('continue'); };
 
             const cancelBtn = box.querySelector('#_preImportBtnCancel');
             if (cancelBtn) cancelBtn.onclick = () => cleanup('cancel');
@@ -789,19 +1035,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             daysWarning: preCheck.daysWarning || null,
             departedWarnings: memberRes?.success ? (memberRes.departedWarnings || []) : [],
             noOldDataWarnings: memberRes?.success ? (memberRes.noOldDataWarnings || []) : [],
+            nhRequired: memberRes?.success ? (memberRes.nhRequired || 0) : 0,
+            targetYymm,
         };
 
         statusDiv.textContent = `📋 [${sheetName}] 請確認偵測結果...`;
         const decision = await showConsolidatedPreImportWindow(sheetName, consolidatedReport);
-        if (decision === 'cancel') {
+        if (decision.action === 'cancel') {
             statusDiv.textContent = (preCheck.issues || preCheck.multiDateWarning)
                 ? `⛔ [${sheetName}] 已中止，請修正 Excel 後重新匯入`
                 : `⛔ [${sheetName}] 已取消匯入，請重新檢查檔案`;
             return;
         }
+        lastNhDates = decision.nhDates || []; // 供本次及後續「重新執行檢測」沿用同一批國定假日日期
 
         let finalExcelData = excelData;
-        if (decision === 'fill' && preCheck.daysWarning) {
+        if (decision.action === 'fill' && preCheck.daysWarning) {
             finalExcelData = fillMissingDays(excelData, preCheck.daysWarning);
             statusDiv.textContent = `⏳ 已補足天數，正在處理工作表 [${sheetName}]...`;
         }
@@ -814,8 +1063,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             showReport:    set.showExcelReport !== false,
             blankFillMode: set.blankFillMode || 'keep',
             blankFillCode: set.blankFillCode || '',
+            nhDates: lastNhDates,
         });
-        if (res?.success) {
+        if (res?.overtimeGaps && res.overtimeGaps.length > 0) {
+            const labels = res.overtimeGaps.map(g => `${g.originExcel || '空白來源'}：${g.over}→${g.sys}`).join('、');
+            await chrome.storage.local.set({ pendingOvertimeGaps: res.overtimeGaps });
+            statusDiv.textContent = `⚠️ 匯入後發現 ${res.overtimeGaps.length} 組自定班別缺少自身 W+／N+ 對應：${labels}`;
+            chrome.windows.create({ url: 'dict_manager.html', type: 'popup', width: 780, height: 500 });
+            hidePopupMenuAfterImport('已開啟班別字典管理，請補齊各 Excel 代號自身的 W+／N+ 對應後重新匯入。');
+        } else if (res?.success) {
             document.getElementById('step3Box').style.display = 'block';
             document.getElementById('step4Box').style.display = 'block';
             statusDiv.textContent = `✅ [${sheetName}] 通過檢測，可執行寫入`;
@@ -824,13 +1080,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             if (set.autoMode && confirm("✅ 檢測通過，是否立即寫入？")) {
                 document.getElementById('step4Btn').click();
+                return; // 寫入完成後由 step4 handler 關閉 popup
             }
+            hidePopupMenuAfterImport('Excel 已匯入，請查看頁面上的檢測報告或進行下一步操作。');
         } else if (res?.unknownCodes && res.unknownCodes.length > 0) {
             await chrome.storage.local.set({ pendingUnknownCodes: res.unknownCodes });
             statusDiv.textContent = `⚠️ 發現 ${res.unknownCodes.length} 個未知班別：${res.unknownCodes.join('、')}，請在字典管理中補填後重新匯入。`;
             chrome.windows.create({ url: 'dict_manager.html', type: 'popup', width: 780, height: 500 });
+            hidePopupMenuAfterImport('已開啟班別字典管理，請補齊對應後重新匯入。');
         } else {
             statusDiv.textContent = res?.message || `❌ [${sheetName}] 檢測未通過，請確認錯誤訊息`;
+            // content.js 會在有檢測錯誤時於網頁端顯示報告，關閉右上角選單避免遮擋。
+            if (res) hidePopupMenuAfterImport('Excel 已匯入，請查看頁面上的檢測報告。');
         }
     }
 
@@ -847,8 +1108,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             showReport:    true,
             blankFillMode: set3.blankFillMode || 'keep',
             blankFillCode: set3.blankFillCode || '',
+            nhDates: lastNhDates,
         });
-        statusDiv.textContent = res?.success ? "✅ 檢測完成，請查看報告" : (res?.message || "❌ 檢測未通過");
+        if (res?.overtimeGaps && res.overtimeGaps.length > 0) {
+            const labels = res.overtimeGaps.map(g => `${g.originExcel || '空白來源'}：${g.over}→${g.sys}`).join('、');
+            await chrome.storage.local.set({ pendingOvertimeGaps: res.overtimeGaps });
+            statusDiv.textContent = `⚠️ 仍缺少 ${res.overtimeGaps.length} 組自身 W+／N+ 對應：${labels}`;
+            chrome.windows.create({ url: 'dict_manager.html', type: 'popup', width: 780, height: 500 });
+            hidePopupMenuAfterImport('請先補齊各 Excel 代號自身的 W+／N+ 對應，再重新檢測。');
+        } else {
+            statusDiv.textContent = res?.success ? "✅ 檢測完成，請查看報告" : (res?.message || "❌ 檢測未通過");
+        }
     };
 
     document.getElementById('step4Btn').onclick = async () => {
@@ -861,5 +1131,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         statusDiv.textContent = "⏳ 寫入中，請稍候...";
         const res = await sendMessage({ action: "injectOnly", excelData });
         statusDiv.textContent = res?.message || (res?.success ? "✅ 寫入完成" : "❌ 寫入失敗，請重整頁面");
+        if (res?.success) hidePopupMenuAfterImport('寫入完成。');
     };
 });
